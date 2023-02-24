@@ -1,166 +1,66 @@
-use std::collections::HashMap;
+use crate::{
+    token::{Literal, Token},
+    token_type::TokenType,
+};
 
-use crate::{token::Token, token_type::TokenType};
-
-pub fn tokenize(source_code: String) -> Result<Vec<Token>, i32> {
-    let mut src = source_code;
-    let mut line: u32 = 1;
-
-    let mut tokens: Vec<Token> = Vec::new();
-
-    while !src.is_empty() {
-        let ch = src.remove(0);
-        let next_ch = src.chars().next();
-
-        match ch {
-            '(' => tokens.push(Token::new(TokenType::LeftParen, ch.to_string(), line)),
-            ')' => tokens.push(Token::new(TokenType::RightParen, ch.to_string(), line)),
-            '{' => tokens.push(Token::new(TokenType::LeftBrace, ch.to_string(), line)),
-            '}' => tokens.push(Token::new(TokenType::RightBrace, ch.to_string(), line)),
-            ',' => tokens.push(Token::new(TokenType::Comma, ch.to_string(), line)),
-            '.' => tokens.push(Token::new(TokenType::Dot, ch.to_string(), line)),
-            '-' => tokens.push(Token::new(TokenType::Minus, ch.to_string(), line)),
-            '+' => tokens.push(Token::new(TokenType::Plus, ch.to_string(), line)),
-            ';' => tokens.push(Token::new(TokenType::Semicolon, ch.to_string(), line)),
-            '*' => tokens.push(Token::new(TokenType::Star, ch.to_string(), line)),
-            '!' if next_ch == Some('=') => {
-                tokens.push(Token::new(TokenType::BangEqual, "!=".to_string(), line));
-                src.remove(0);
-            }
-            '!' => {
-                tokens.push(Token::new(TokenType::Bang, ch.to_string(), line));
-            }
-            '=' if next_ch == Some('=') => {
-                tokens.push(Token::new(TokenType::EqualEqual, "==".to_string(), line));
-                src.remove(0);
-            }
-            '=' => {
-                tokens.push(Token::new(TokenType::Equal, ch.to_string(), line));
-            }
-            '<' if next_ch == Some('=') => {
-                tokens.push(Token::new(TokenType::LessEqual, "<=".to_string(), line));
-                src.remove(0);
-            }
-            '<' => {
-                tokens.push(Token::new(TokenType::Less, ch.to_string(), line));
-            }
-            '>' if next_ch == Some('=') => {
-                tokens.push(Token::new(TokenType::GreaterEqual, ">=".to_string(), line));
-                src.remove(0);
-            }
-            '>' => {
-                tokens.push(Token::new(TokenType::Greater, ch.to_string(), line));
-            }
-            '/' if next_ch == Some('/') => {
-                while !src.is_empty() && next_ch != Some('\n') {
-                    src.remove(0);
-                }
-            }
-            '/' => {
-                tokens.push(Token::new(TokenType::Slash, ch.to_string(), line));
-            }
-            '\n' => line += 1,
-            ' ' => {}
-            '"' => match tokenize_string(&mut src, &mut line) {
-                Ok(token) => tokens.push(token),
-                Err(err) => return Err(err),
-            },
-
-            _ => {
-                if ch.is_ascii_digit() {
-                    match tokenize_number(&mut src, &mut line, ch) {
-                        Ok(token) => tokens.push(token),
-                        Err(err) => return Err(err),
-                    }
-                } else if ch.is_alphabetic() {
-                    match tokenize_identifier(&mut src, &mut line, ch) {
-                        Ok(token) => tokens.push(token),
-                        Err(err) => return Err(err),
-                    }
-                } else {
-                    error(line, "Unexpected character.");
-                    return Err(65);
-                }
-            }
-        }
-    }
-
-    tokens.push(Token::new(TokenType::EOF, "".to_string(), line));
-    return Ok(tokens);
+pub struct Lexer {
+    src: String,
+    tokens: Vec<Token>,
+    start: usize,
+    curr: usize,
+    line: usize,
 }
 
-fn tokenize_string(src: &mut String, line: &mut u32) -> Result<Token, i32> {
-    let mut string = "".to_string();
+impl Lexer {
+    pub fn new(src: &str) -> Self {
+        return Self {
+            src: src.to_string(),
+            tokens: vec![],
+            start: 0,
+            curr: 0,
+            line: 1,
+        };
+    }
 
-    while !src.is_empty() && !src.starts_with('"') {
-        let ch = src.remove(0);
-        if ch == '\n' {
-            *line += 1;
+    pub fn scan_tokens(self: &mut Self) -> Result<Vec<Token>, String> {
+        while !self.is_at_end() {
+            self.start = self.curr;
+            self.scan_token()?;
+        }
+
+        self.tokens
+            .push(Token::new(TokenType::EOF, "", None, self.line));
+
+        return Ok(self.tokens.clone());
+    }
+
+    fn is_at_end(self: &Self) -> bool {
+        return self.curr >= self.src.len();
+    }
+
+    fn scan_token(self: &mut Self) -> Result<(), String> {
+        let ch = self.advance();
+
+        if ch.is_some() {
+            match ch.unwrap() {
+                _ => {}
+            }
         } else {
-            string.push(ch);
+            return Err("Cannot scan token".to_string());
         }
+
+        return Ok(());
     }
 
-    if src.is_empty() {
-        error(*line, "Unterminated string.");
-        return Err(65);
+    fn advance(self: &mut Self) -> Option<char> {
+        let ch = self.src.chars().nth(self.curr);
+        self.curr += 1;
+        return ch;
     }
 
-    src.remove(0);
-    return Ok(Token::new(TokenType::String, string, *line));
-}
+    fn add_token(self: &mut Self, token_type: TokenType, literal: Option<Literal>) {
+        let text = self.src.get(self.start..self.curr).unwrap_or_default();
+        self.tokens.push(Token::new(token_type, &text, literal, self.line))
 
-fn tokenize_number(src: &mut String, line: &mut u32, first_digit: char) -> Result<Token, i32> {
-    let mut num = first_digit.to_string();
-
-    while !src.is_empty() && src.chars().next().unwrap().is_ascii_digit() {
-        num.push(src.remove(0));
     }
-
-    if !src.is_empty() && src.starts_with('.') {
-        num.push(src.remove(0));
-
-        while !src.is_empty() && src.chars().next().unwrap().is_ascii_digit() {
-            num.push(src.remove(0));
-        }
-    }
-
-    return Ok(Token::new(TokenType::Number, num, *line));
-}
-
-fn tokenize_identifier(src: &mut String, line: &mut u32, first_char: char) -> Result<Token, i32> {
-    let keywords: HashMap<&str, TokenType> = HashMap::from([
-        ("and", TokenType::And),
-        ("class", TokenType::Class),
-        ("else", TokenType::Else),
-        ("false", TokenType::False),
-        ("for", TokenType::For),
-        ("fun", TokenType::Fun),
-        ("if", TokenType::If),
-        ("nil", TokenType::Nil),
-        ("or", TokenType::Or),
-        ("print", TokenType::Print),
-        ("return", TokenType::Return),
-        ("super", TokenType::Super),
-        ("this", TokenType::This),
-        ("true", TokenType::True),
-        ("let", TokenType::Let),
-        ("while", TokenType::While),
-    ]);
-
-    let mut identifier = first_char.to_string();
-
-    while !src.is_empty() && src.chars().next().unwrap().is_alphanumeric() {
-        identifier.push(src.remove(0));
-    }
-
-    if let Some(token_type) = keywords.get(&*identifier) {
-        return Ok(Token::new(*token_type, identifier, *line));
-    } else {
-        return Ok(Token::new(TokenType::Identifier, identifier, *line));
-    }
-}
-
-fn error(line: u32, message: &str) {
-    eprintln!("[{line}] {message}");
 }
