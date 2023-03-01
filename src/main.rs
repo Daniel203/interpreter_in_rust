@@ -1,12 +1,10 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     io::{self, Write},
     process::exit,
 };
 
 use programming_language::lexer::Lexer;
-
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -57,7 +55,7 @@ fn run_prompt() -> Result<(), String> {
         io::stdout().flush().expect("Error while flushing.");
         let mut buf = String::new();
         let stdin = io::stdin();
-        stdin.read_line(&mut buf).expect("Couldn't read line");
+        stdin.read_line(&mut buf).expect("Couldn't read line.");
 
         if buf.len() <= 2 {
             return Ok(());
