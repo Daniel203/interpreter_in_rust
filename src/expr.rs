@@ -1,5 +1,7 @@
+use crate::token;
 use crate::token::Token;
 
+#[derive(Debug, Clone)]
 pub enum Literal {
     Number(f64),
     String(String),
@@ -20,6 +22,27 @@ impl ToString for Literal {
     }
 }
 
+impl Literal {
+    pub fn from_token_literal(literal: token::Literal) -> Self {
+        return match literal {
+            token::Literal::Number(val) => Self::Number(val),
+            token::Literal::String(val) => Self::String(val),
+            token::Literal::Identifier(val) => {
+                if val == "true" {
+                    return Self::True;
+                } else if val == "false" {
+                    return Self::False;
+                } else if val == "Nil" {
+                    return Self::Nil;
+                } else {
+                    panic!("Could not create literal from value {:?}", val);
+                }
+            }
+        };
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Expr {
     Binary {
         left: Box<Expr>,
@@ -57,7 +80,7 @@ impl ToString for Expr {
                 return format!("(group {})", (*expression).to_string());
             }
             Expr::Literal { value } => {
-                return format!("{}", value.to_string());
+                return value.to_string();
             }
             Expr::Unary { operator, right } => {
                 return format!("({} {})", &operator.value, (*right).to_string());

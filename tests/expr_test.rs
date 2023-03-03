@@ -9,7 +9,10 @@ fn expr_ast() {
         value: Literal::Number(123f64),
     };
 
-    let minus_num = Box::from(Expr::Unary { operator: minus_token, right: Box::from(first_num) });
+    let minus_num = Box::from(Expr::Unary {
+        operator: minus_token,
+        right: Box::from(first_num),
+    });
 
     let second_num = Box::from(Expr::Grouping {
         expression: Box::from(Expr::Literal {
@@ -19,7 +22,11 @@ fn expr_ast() {
 
     let multiplication = Token::new(TokenType::Star, "*", None, 0);
 
-    let ast = Expr::Binary { left: minus_num, operator: multiplication, right: second_num };
+    let ast = Expr::Binary {
+        left: minus_num,
+        operator: multiplication,
+        right: second_num,
+    };
 
     let result = ast.to_string();
 
