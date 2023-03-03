@@ -18,7 +18,7 @@ fn parser_addition() {
     let result = parser.expression();
     let expected = "(+ 1 2)";
 
-    assert_eq!(result.is_some(), true);
+    assert_eq!(result.is_ok(), true);
     assert_eq!(result.unwrap().to_string(), expected);
 }
 
@@ -35,6 +35,6 @@ fn parser_comparison() {
     let result = parser.expression();
     let expected = "(== (+ 1 2) (+ 5 7))";
 
-    assert_eq!(result.is_some(), true);
+    assert_eq!(result.is_ok(), true);
     assert_eq!(result.unwrap().to_string(), expected);
 }
