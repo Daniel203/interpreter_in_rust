@@ -14,11 +14,8 @@ impl Parser {
         return Self { tokens, curr: 0 };
     }
 
-    pub fn parse(&mut self) -> Option<Expr> {
-        match self.expression() {
-            Ok(expr) => Some(expr),
-            Err(_) => None,
-        }
+    pub fn parse(&mut self) -> Result<Expr, String> {
+        return self.expression();
     }
 
     pub fn expression(&mut self) -> Result<Expr, String> {

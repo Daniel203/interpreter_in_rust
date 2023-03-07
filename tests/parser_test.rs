@@ -38,3 +38,61 @@ fn parser_comparison() {
     assert_eq!(result.is_ok(), true);
     assert_eq!(result.unwrap().to_string(), expected);
 }
+
+#[test]
+fn parser_evaluation_numbers_equal() {
+    // false
+    let source = "1 == 2";
+    let mut lexer = Lexer::new(source);
+
+    let tokens = lexer.scan_tokens();
+    let mut parser = Parser::new(tokens.ok().unwrap());
+    let result = parser.expression().unwrap().evaluate();
+
+    let expected = "false";
+
+    assert_eq!(result.is_ok(), true);
+    assert_eq!(result.unwrap().to_string(), expected);
+
+    // true
+    let source = "2 == 2";
+    let mut lexer = Lexer::new(source);
+
+    let tokens = lexer.scan_tokens();
+    let mut parser = Parser::new(tokens.ok().unwrap());
+    let result = parser.expression().unwrap().evaluate();
+
+    let expected = "true";
+
+    assert_eq!(result.is_ok(), true);
+    assert_eq!(result.unwrap().to_string(), expected);
+}
+
+#[test]
+fn parser_evaluation_strings_contatenation() {
+    // string + string
+    let source = r#""Hello " + "world""#;
+    let mut lexer = Lexer::new(source);
+
+    let tokens = lexer.scan_tokens();
+    let mut parser = Parser::new(tokens.ok().unwrap());
+    let result = parser.expression().unwrap().evaluate();
+
+    let expected = "Hello world";
+
+    assert_eq!(result.is_ok(), true);
+    assert_eq!(result.unwrap().to_string(), expected);
+
+    // string + number
+    let source = r#""number: " + 10"#;
+    let mut lexer = Lexer::new(source);
+
+    let tokens = lexer.scan_tokens();
+    let mut parser = Parser::new(tokens.ok().unwrap());
+    let result = parser.expression().unwrap().evaluate();
+
+    let expected = "number: 10";
+
+    assert_eq!(result.is_ok(), true);
+    assert_eq!(result.unwrap().to_string(), expected);
+}

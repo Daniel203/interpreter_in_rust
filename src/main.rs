@@ -4,7 +4,7 @@ use std::{
     process::exit,
 };
 
-use programming_language::lexer::Lexer;
+use programming_language::{lexer::Lexer, parser::Parser};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -42,9 +42,11 @@ fn run(src: &str) -> Result<(), String> {
     let mut lexer = Lexer::new(src);
     let tokens = lexer.scan_tokens()?;
 
-    for token in tokens {
-        println!("{token:?}");
-    }
+    let mut parser = Parser::new(tokens);
+    let expr = parser.parse()?;
+    let result = expr.evaluate()?;
+
+    println!("{}", result.to_string());
 
     return Ok(());
 }
@@ -59,6 +61,8 @@ fn run_prompt() -> Result<(), String> {
 
         if buf.len() <= 2 {
             return Ok(());
+        } else {
+            run(&buf)?;
         }
     }
 }
