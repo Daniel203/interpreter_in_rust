@@ -148,16 +148,14 @@ impl Expr {
                 None => Err(format!("Undefined variable '{}'.", name.value)),
             },
             Expr::Assign { name, value } => {
-                let get_value = environment.get(name.value.clone());
+                let new_value = (*value).evaluate(environment)?;
+                let assign_succes = environment.assign(&name.value, new_value.clone());
 
-                return match get_value {
-                    Some(_) => {
-                        let new_value = (*value).evaluate(environment)?;
-                        environment.define(name.value.clone(), new_value.clone());
-                        return Ok(new_value);
-                    }
-                    None => Err(format!("Variable {} was not declared", name.value)),
-                };
+                if assign_succes {
+                    return Ok(new_value);
+                } else {
+                    return Err(format!("Variable {} was not declared", name.value));
+                }
             }
             Expr::Unary { operator, right } => {
                 let right = (*right).evaluate(environment)?;
