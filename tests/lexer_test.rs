@@ -3,7 +3,7 @@ use programming_language::token::{Literal, Token};
 use programming_language::token_type::TokenType;
 
 #[test]
-fn lexer_single_character() {
+fn test_single_character() {
     let result = Lexer::new("()").scan_tokens();
     let expected = Ok(vec![
         Token::new(TokenType::LeftParen, "(", None, 1),
@@ -15,7 +15,7 @@ fn lexer_single_character() {
 }
 
 #[test]
-fn lexer_double_character() {
+fn test_double_character() {
     let result = Lexer::new("!=()").scan_tokens();
     let expected = Ok(vec![
         Token::new(TokenType::BangEqual, "!=", None, 1),
@@ -28,7 +28,7 @@ fn lexer_double_character() {
 }
 
 #[test]
-fn lexer_comment() {
+fn test_comment() {
     let result = Lexer::new(
         r#"
             //very beautiful comment
@@ -46,7 +46,7 @@ fn lexer_comment() {
 }
 
 #[test]
-fn lexer_multi_line() {
+fn test_multi_line() {
     let result = Lexer::new(
         r#" 
         !=()
@@ -65,7 +65,7 @@ fn lexer_multi_line() {
 }
 
 #[test]
-fn lexer_string() {
+fn test_string() {
     let result = Lexer::new(r#""try string""#).scan_tokens();
     let expected = Ok(vec![
         Token::new(
@@ -81,7 +81,7 @@ fn lexer_string() {
 }
 
 #[test]
-fn lexer_number() {
+fn test_number() {
     let result = Lexer::new("123.45").scan_tokens();
     let expected = Ok(vec![
         Token::new(
@@ -97,7 +97,7 @@ fn lexer_number() {
 }
 
 #[test]
-fn lexer_unexpected_char() {
+fn test_unexpected_char() {
     let result = Lexer::new("\'").scan_tokens();
     let expected = Err("Line 1: Unrecognized char '".to_string());
 
@@ -105,10 +105,10 @@ fn lexer_unexpected_char() {
 }
 
 #[test]
-fn lexer_identifier() {
-    let result = Lexer::new("let return while other").scan_tokens();
+fn test_identifier() {
+    let result = Lexer::new("var return while other").scan_tokens();
     let expected = Ok(vec![
-        Token::new(TokenType::Let, "let", None, 1),
+        Token::new(TokenType::Var, "var", None, 1),
         Token::new(TokenType::Return, "return", None, 1),
         Token::new(TokenType::While, "while", None, 1),
         Token::new(TokenType::Identifier, "other", None, 1),

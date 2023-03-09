@@ -43,7 +43,7 @@ pub enum TokenType {
     Super,
     This,
     True,
-    Let,
+    Var,
     While,
 
     EOF,

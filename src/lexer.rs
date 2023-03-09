@@ -193,7 +193,7 @@ impl Lexer {
             ("super", TokenType::Super),
             ("this", TokenType::This),
             ("true", TokenType::True),
-            ("let", TokenType::Let),
+            ("var", TokenType::Var),
             ("while", TokenType::While),
         ]);
 

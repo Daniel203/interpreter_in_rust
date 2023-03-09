@@ -28,6 +28,6 @@ impl Token {
 
 impl ToString for Token {
     fn to_string(&self) -> String {
-        return String::from("{type} {value}");
+        return format!("{:?} '{}'", self.token_type, self.value);
     }
 }

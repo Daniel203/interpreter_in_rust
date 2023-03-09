@@ -1,98 +1,249 @@
-use programming_language::{
-    lexer::Lexer,
-    parser::Parser,
-    token::{Literal, Token},
-    token_type::TokenType,
-};
+use programming_language::expr::{Expr, Literal};
+use programming_language::lexer::Lexer;
+use programming_language::parser::Parser;
+use programming_language::stmt::Stmt;
+use programming_language::token::Token;
+use programming_language::token_type::TokenType;
 
-#[test]
-fn parser_addition() {
-    let one = Token::new(TokenType::Number, "1", Some(Literal::Number(1_f64)), 0);
-    let plus = Token::new(TokenType::Plus, "+", None, 0);
-    let two = Token::new(TokenType::Number, "2", Some(Literal::Number(2_f64)), 0);
-    let semicolon = Token::new(TokenType::Semicolon, ";", None, 0);
+fn assert_parse(input: &str, expected: &[Stmt]) {
+    let mut lexer = Lexer::new(input);
+    let tokens = lexer.scan_tokens().map_err(|err| format!("{}", err));
+    let mut parser = Parser::new(tokens.unwrap());
 
-    let tokens = vec![one, plus, two, semicolon];
-    let mut parser = Parser::new(tokens);
-
-    let result = parser.expression();
-    let expected = "(+ 1 2)";
-
-    assert_eq!(result.is_ok(), true);
-    assert_eq!(result.unwrap().to_string(), expected);
+    match parser.parse() {
+        Ok(statements) => assert_eq!(statements, expected),
+        Err(msg) => panic!("{}", msg),
+    }
 }
 
 #[test]
-fn parser_comparison() {
-    let source = "1 + 2 == 5 + 7";
-    let mut lexer = Lexer::new(source);
-
-    let tokens = lexer.scan_tokens();
-    assert_eq!(tokens.is_ok(), true);
-
-    let mut parser = Parser::new(tokens.ok().unwrap());
-
-    let result = parser.expression();
-    let expected = "(== (+ 1 2) (+ 5 7))";
-
-    assert_eq!(result.is_ok(), true);
-    assert_eq!(result.unwrap().to_string(), expected);
+fn test_empty_program() {
+    let input = "";
+    let expected = vec![];
+    assert_parse(input, &expected);
 }
 
 #[test]
-fn parser_evaluation_numbers_equal() {
-    // false
-    let source = "1 == 2";
-    let mut lexer = Lexer::new(source);
-
-    let tokens = lexer.scan_tokens();
-    let mut parser = Parser::new(tokens.ok().unwrap());
-    let result = parser.expression().unwrap().evaluate();
-
-    let expected = "false";
-
-    assert_eq!(result.is_ok(), true);
-    assert_eq!(result.unwrap().to_string(), expected);
-
-    // true
-    let source = "2 == 2";
-    let mut lexer = Lexer::new(source);
-
-    let tokens = lexer.scan_tokens();
-    let mut parser = Parser::new(tokens.ok().unwrap());
-    let result = parser.expression().unwrap().evaluate();
-
-    let expected = "true";
-
-    assert_eq!(result.is_ok(), true);
-    assert_eq!(result.unwrap().to_string(), expected);
+fn test_var_declaration() {
+    let input = "var x;";
+    let expected = vec![Stmt::Var {
+        name: Token::new(TokenType::Identifier, "x", None, 1),
+        initializer: Expr::Literal {
+            value: Literal::Nil,
+        },
+    }];
+    assert_parse(input, &expected);
 }
 
 #[test]
-fn parser_evaluation_strings_contatenation() {
-    // string + string
-    let source = r#""Hello " + "world""#;
-    let mut lexer = Lexer::new(source);
+fn test_var_declaration_with_initializer() {
+    let input = "var x = 10;";
+    let expected = vec![Stmt::Var {
+        name: Token::new(TokenType::Identifier, "x", None, 1),
+        initializer: Expr::Literal {
+            value: Literal::Number(10.0),
+        },
+    }];
+    assert_parse(input, &expected);
+}
 
-    let tokens = lexer.scan_tokens();
-    let mut parser = Parser::new(tokens.ok().unwrap());
-    let result = parser.expression().unwrap().evaluate();
+#[test]
+fn test_print_statement() {
+    let input = "print 1 + 2;";
+    let expected = vec![Stmt::Print {
+        expression: Expr::Binary {
+            left: Box::new(Expr::Literal {
+                value: Literal::Number(1.0),
+            }),
+            operator: Token::new(TokenType::Plus, "+", None, 1),
+            right: Box::new(Expr::Literal {
+                value: Literal::Number(2.0),
+            }),
+        },
+    }];
+    assert_parse(input, &expected);
+}
 
-    let expected = "Hello world";
+#[test]
+fn test_print_variable() {
+    let input = r#"
+        var x = "Hello, world!";
+        print x;
+    "#;
+    let expected = vec![
+        Stmt::Var {
+            name: Token::new(TokenType::Identifier, "x", None, 2),
+            initializer: Expr::Literal {
+                value: Literal::String("Hello, world!".to_string()),
+            },
+        },
+        Stmt::Print {
+            expression: Expr::Variable {
+                name: Token::new(TokenType::Identifier, "x", None, 3),
+            },
+        },
+    ];
+    assert_parse(input, &expected);
+}
 
-    assert_eq!(result.is_ok(), true);
-    assert_eq!(result.unwrap().to_string(), expected);
+#[test]
+fn test_print_sum_number_variables() {
+    let input = r#"
+        var x = 10;
+        var y = 6;
+        print x + y;
+    "#;
+    let expected = vec![
+        Stmt::Var {
+            name: Token::new(TokenType::Identifier, "x", None, 2),
+            initializer: Expr::Literal {
+                value: Literal::Number(10 as f64),
+            },
+        },
+        Stmt::Var {
+            name: Token::new(TokenType::Identifier, "y", None, 3),
+            initializer: Expr::Literal {
+                value: Literal::Number(6 as f64),
+            },
+        },
+        Stmt::Print {
+            expression: Expr::Binary {
+                left: Box::from(Expr::Variable {
+                    name: Token::new(TokenType::Identifier, "x", None, 4),
+                }),
+                operator: Token::new(TokenType::Plus, "+", None, 4),
+                right: Box::from(Expr::Variable {
+                    name: Token::new(TokenType::Identifier, "y", None, 4),
+                }),
+            },
+        },
+    ];
+    assert_parse(input, &expected);
+}
 
-    // string + number
-    let source = r#""number: " + 10"#;
-    let mut lexer = Lexer::new(source);
+#[test]
+fn test_expression_statement() {
+    let input = "1 + 2;";
+    let expected = vec![Stmt::Expression {
+        expression: Expr::Binary {
+            left: Box::new(Expr::Literal {
+                value: Literal::Number(1.0),
+            }),
+            operator: Token::new(TokenType::Plus, "+", None, 1),
+            right: Box::new(Expr::Literal {
+                value: Literal::Number(2.0),
+            }),
+        },
+    }];
+    assert_parse(input, &expected);
+}
 
-    let tokens = lexer.scan_tokens();
-    let mut parser = Parser::new(tokens.ok().unwrap());
-    let result = parser.expression().unwrap().evaluate();
+#[test]
+fn test_operator_precedence() {
+    let input = "1 + 2 * 3;";
+    let expected = vec![Stmt::Expression {
+        expression: Expr::Binary {
+            left: Box::new(Expr::Literal {
+                value: Literal::Number(1.0),
+            }),
+            operator: Token::new(TokenType::Plus, "+", None, 1),
+            right: Box::new(Expr::Binary {
+                left: Box::new(Expr::Literal {
+                    value: Literal::Number(2.0),
+                }),
+                operator: Token::new(TokenType::Star, "*", None, 1),
+                right: Box::new(Expr::Literal {
+                    value: Literal::Number(3.0),
+                }),
+            }),
+        },
+    }];
+    assert_parse(input, &expected);
+}
 
-    let expected = "number: 10";
+#[test]
+fn test_grouping() {
+    let input = "(1 + 2) * 3;";
+    let expected = vec![Stmt::Expression {
+        expression: Expr::Binary {
+            left: Box::new(Expr::Grouping {
+                expression: Box::new(Expr::Binary {
+                    left: Box::new(Expr::Literal {
+                        value: Literal::Number(1.0),
+                    }),
+                    operator: Token::new(TokenType::Plus, "+", None, 1),
+                    right: Box::new(Expr::Literal {
+                        value: Literal::Number(2.0),
+                    }),
+                }),
+            }),
+            operator: Token::new(TokenType::Star, "*", None, 1),
+            right: Box::new(Expr::Literal {
+                value: Literal::Number(3.0),
+            }),
+        },
+    }];
+    assert_parse(input, &expected);
+}
 
-    assert_eq!(result.is_ok(), true);
-    assert_eq!(result.unwrap().to_string(), expected);
+#[test]
+fn test_unary() {
+    let input = "-1;";
+    let expected = vec![Stmt::Expression {
+        expression: Expr::Unary {
+            operator: Token::new(TokenType::Minus, "-", None, 1),
+            right: Box::new(Expr::Literal {
+                value: Literal::Number(1.0),
+            }),
+        },
+    }];
+    assert_parse(input, &expected);
+}
+
+#[ignore]
+#[test]
+fn test_unary_precedence() {
+    let input = "!true == -1;";
+    let expected = vec![Stmt::Expression {
+        expression: Expr::Binary {
+            left: Box::new(Expr::Unary {
+                operator: Token::new(TokenType::Bang, "!", None, 1),
+                right: Box::new(Expr::Literal {
+                    value: Literal::True,
+                }),
+            }),
+            operator: Token::new(TokenType::EqualEqual, "==", None, 1),
+            right: Box::new(Expr::Unary {
+                operator: Token::new(TokenType::Minus, "-", None, 1),
+                right: Box::new(Expr::Literal {
+                    value: Literal::Number(1.0),
+                }),
+            }),
+        },
+    }];
+    assert_parse(input, &expected);
+}
+
+#[ignore]
+#[test]
+fn test_logical_operator() {
+    let input = "true and false or true;";
+    let expected = vec![Stmt::Expression {
+        expression: Expr::Binary {
+            left: Box::new(Expr::Binary {
+                left: Box::new(Expr::Literal {
+                    value: Literal::True,
+                }),
+                operator: Token::new(TokenType::And, "and", None, 1),
+                right: Box::new(Expr::Literal {
+                    value: Literal::False,
+                }),
+            }),
+            operator: Token::new(TokenType::Or, "or", None, 1),
+            right: Box::new(Expr::Literal {
+                value: Literal::True,
+            }),
+        },
+    }];
+    assert_parse(input, &expected);
 }

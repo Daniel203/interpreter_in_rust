@@ -4,7 +4,7 @@ use std::{
     process::exit,
 };
 
-use programming_language::{lexer::Lexer, parser::Parser};
+use programming_language::{interpreter::Interpreter, lexer::Lexer, parser::Parser};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -32,26 +32,28 @@ pub fn error(message: &str, code: i32) {
 }
 
 fn run_file(path: &str) -> Result<(), String> {
+    let mut interpreter = Interpreter::new();
     return match fs::read_to_string(path) {
-        Ok(data) => run(&data),
+        Ok(data) => run(&data, &mut interpreter),
         Err(err) => Err(err.to_string()),
     };
 }
 
-fn run(src: &str) -> Result<(), String> {
+fn run(src: &str, interpreter: &mut Interpreter) -> Result<(), String> {
     let mut lexer = Lexer::new(src);
     let tokens = lexer.scan_tokens()?;
 
     let mut parser = Parser::new(tokens);
-    let expr = parser.parse()?;
-    let result = expr.evaluate()?;
+    let stmts = parser.parse()?;
 
-    println!("{}", result.to_string());
+    interpreter.interpret(stmts)?;
 
     return Ok(());
 }
 
 fn run_prompt() -> Result<(), String> {
+    let mut interpreter = Interpreter::new();
+
     loop {
         print!("> ");
         io::stdout().flush().expect("Error while flushing.");
@@ -62,7 +64,7 @@ fn run_prompt() -> Result<(), String> {
         if buf.len() <= 2 {
             return Ok(());
         } else {
-            run(&buf)?;
+            run(&buf, &mut interpreter)?;
         }
     }
 }

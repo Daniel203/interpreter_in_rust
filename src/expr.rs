@@ -1,8 +1,9 @@
+use crate::environment::Environment;
 use crate::token;
 use crate::token::Token;
 use crate::token_type::TokenType;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Number(f64),
     String(String),
@@ -36,10 +37,18 @@ impl Literal {
                 } else if val == "Nil" {
                     return Self::Nil;
                 } else {
-                    panic!("Could not create literal from value {:?}", val);
+                    panic!("Could not create literal from value {:?}.", val);
                 }
             }
         };
+    }
+
+    pub fn from_token(token: Token) -> Self {
+        if let Some(literal) = token.literal {
+            return Literal::from_token_literal(literal);
+        } else {
+            panic!("Token {} doesn't have literal.", token.to_string());
+        }
     }
 
     pub fn from_bool(b: bool) -> Self {
@@ -73,8 +82,12 @@ impl Literal {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
+    Assign {
+        name: Token,
+        value: Box<Expr>,
+    },
     Binary {
         left: Box<Expr>,
         operator: Token,
@@ -89,6 +102,9 @@ pub enum Expr {
     Unary {
         operator: Token,
         right: Box<Expr>,
+    },
+    Variable {
+        name: Token,
     },
 }
 
@@ -116,20 +132,52 @@ impl ToString for Expr {
             Expr::Unary { operator, right } => {
                 return format!("({} {})", &operator.value, (*right).to_string());
             }
+            Expr::Variable { name } => format!("(var {})", name.value),
+            Expr::Assign { name, value } => format!("({:?} = {})", name, (*value).to_string()),
         }
     }
 }
 
 impl Expr {
-    pub fn evaluate(&self) -> Result<Literal, String> {
+    pub fn evaluate(&self, environment: &mut Environment) -> Result<Literal, String> {
         return match self {
+            Expr::Grouping { expression } => expression.evaluate(environment),
+            Expr::Literal { value } => Ok(value.clone()),
+            Expr::Variable { name } => match environment.get(name.value.clone()) {
+                Some(value) => Ok(value.clone()),
+                None => Err(format!("Undefined variable '{}'.", name.value)),
+            },
+            Expr::Assign { name, value } => {
+                let get_value = environment.get(name.value.clone());
+
+                return match get_value {
+                    Some(_) => {
+                        let new_value = (*value).evaluate(environment)?;
+                        environment.define(name.value.clone(), new_value.clone());
+                        return Ok(new_value);
+                    }
+                    None => Err(format!("Variable {} was not declared", name.value)),
+                };
+            }
+            Expr::Unary { operator, right } => {
+                let right = (*right).evaluate(environment)?;
+
+                return match (right.clone(), operator.token_type) {
+                    (Literal::Number(x), TokenType::Minus) => Ok(Literal::Number(-x)),
+                    (_, TokenType::Minus) => Err(format!("Minus not implemented for {:?}", right)),
+                    (any, TokenType::Bang) => Ok(any.is_falsey()),
+                    (_, token_type) => {
+                        Err(format!("{:?} is not a valid unary operator", token_type))
+                    }
+                };
+            }
             Expr::Binary {
                 left,
                 operator,
                 right,
             } => {
-                let left = (*left).evaluate()?;
-                let right = (*right).evaluate()?;
+                let left = (*left).evaluate(environment)?;
+                let right = (*right).evaluate(environment)?;
 
                 match (left, operator.token_type, right) {
                     (Literal::Number(l), TokenType::Minus, Literal::Number(r)) => {
@@ -140,24 +188,6 @@ impl Expr {
                     }
                     (Literal::Number(l), TokenType::Star, Literal::Number(r)) => {
                         return Ok(Literal::Number(l * r));
-                    }
-                    (Literal::Number(l), TokenType::Greater, Literal::Number(r)) => {
-                        return Ok(Literal::from_bool(l > r));
-                    }
-                    (Literal::Number(l), TokenType::GreaterEqual, Literal::Number(r)) => {
-                        return Ok(Literal::from_bool(l >= r));
-                    }
-                    (Literal::Number(l), TokenType::Less, Literal::Number(r)) => {
-                        return Ok(Literal::from_bool(l < r));
-                    }
-                    (Literal::Number(l), TokenType::LessEqual, Literal::Number(r)) => {
-                        return Ok(Literal::from_bool(l <= r));
-                    }
-                    (Literal::Number(l), TokenType::BangEqual, Literal::Number(r)) => {
-                        return Ok(Literal::from_bool(l != r));
-                    }
-                    (Literal::Number(l), TokenType::EqualEqual, Literal::Number(r)) => {
-                        return Ok(Literal::from_bool(l == r));
                     }
                     (Literal::Number(l), TokenType::Plus, Literal::Number(r)) => {
                         return Ok(Literal::Number(l + r));
@@ -172,6 +202,38 @@ impl Expr {
                         return Ok(Literal::String(format!("{}{}", l, r)));
                     }
 
+                    (Literal::Number(l), TokenType::Greater, Literal::Number(r)) => {
+                        return Ok(Literal::from_bool(l > r));
+                    }
+                    (Literal::Number(l), TokenType::GreaterEqual, Literal::Number(r)) => {
+                        return Ok(Literal::from_bool(l >= r));
+                    }
+                    (Literal::Number(l), TokenType::Less, Literal::Number(r)) => {
+                        return Ok(Literal::from_bool(l < r));
+                    }
+                    (Literal::Number(l), TokenType::LessEqual, Literal::Number(r)) => {
+                        return Ok(Literal::from_bool(l <= r));
+                    }
+                    (Literal::String(l), TokenType::Greater, Literal::String(r)) => {
+                        return Ok(Literal::from_bool(l > r));
+                    }
+                    (Literal::String(l), TokenType::GreaterEqual, Literal::String(r)) => {
+                        return Ok(Literal::from_bool(l >= r));
+                    }
+                    (Literal::String(l), TokenType::Less, Literal::String(r)) => {
+                        return Ok(Literal::from_bool(l < r));
+                    }
+                    (Literal::String(l), TokenType::LessEqual, Literal::String(r)) => {
+                        return Ok(Literal::from_bool(l <= r));
+                    }
+
+                    (l, TokenType::EqualEqual, r) => {
+                        return Ok(Literal::from_bool(l == r));
+                    }
+                    (l, TokenType::BangEqual, r) => {
+                        return Ok(Literal::from_bool(l != r));
+                    }
+
                     (Literal::String(_), op, Literal::Number(_)) => {
                         return Err(format!("{:?} is not defined for string and number", op));
                     }
@@ -179,21 +241,11 @@ impl Expr {
                         return Err(format!("{:?} is not defined for number and string", op));
                     }
 
-                    _ => todo!(),
+                    (l, token_type, r) => Err(format!(
+                        "{:?} is not implemented for operands {:?} {:?}",
+                        token_type, l, r
+                    )),
                 }
-            }
-            Expr::Grouping { expression } => expression.evaluate(),
-            Expr::Literal { value } => Ok(value.clone()),
-            Expr::Unary { operator, right } => {
-                let right = (*right).evaluate()?;
-
-                return match (right.clone(), operator.token_type) {
-                    (Literal::Number(x), TokenType::Minus) => Ok(Literal::Number(-x)),
-                    (_, TokenType::Minus) => Err(format!("Minus not implemented for {:?}", right)),
-                    (any, TokenType::Bang) => Ok(any.is_falsey()),
-
-                    _ => todo!(),
-                };
             }
         };
     }

@@ -1,9 +1,11 @@
 use crate::{
-    expr::{self, Expr, Literal},
+    expr::{Expr, Literal},
+    stmt::Stmt,
     token::Token,
     token_type::TokenType,
 };
 
+#[derive(Debug)]
 pub struct Parser {
     tokens: Vec<Token>,
     curr: usize,
@@ -14,34 +16,118 @@ impl Parser {
         return Self { tokens, curr: 0 };
     }
 
-    pub fn parse(&mut self) -> Result<Expr, String> {
-        return self.expression();
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, String> {
+        let mut stmts = Vec::new();
+        let mut errs = Vec::new();
+
+        while !self.is_at_end() {
+            let stmt = self.declaration();
+
+            match stmt {
+                Ok(s) => stmts.push(s),
+                Err(err) => {
+                    errs.push(err);
+                    self.synchronize()?;
+                }
+            }
+        }
+
+        if errs.is_empty() {
+            return Ok(stmts);
+        } else {
+            return Err(errs.join("/n"));
+        }
+    }
+
+    fn declaration(&mut self) -> Result<Stmt, String> {
+        if self.match_token(TokenType::Var)? {
+            return match self.var_declaration() {
+                Ok(stmt) => Ok(stmt),
+                Err(err) => {
+                    return Err(err);
+                }
+            };
+        } else {
+            return self.statement();
+        }
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
+
+        let initializer = if self.match_token(TokenType::Equal)? {
+            self.expression()?
+        } else {
+            Expr::Literal {
+                value: Literal::Nil,
+            }
+        };
+
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration.",
+        )?;
+
+        return Ok(Stmt::Var { name, initializer });
+    }
+
+    fn statement(&mut self) -> Result<Stmt, String> {
+        if self.match_token(TokenType::Print)? {
+            return self.print_statement();
+        } else {
+            return self.expression_statement();
+        }
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt, String> {
+        let value = self.expression()?;
+        self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
+
+        return Ok(Stmt::Print { expression: value });
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt, String> {
+        let expr = self.expression()?;
+        self.consume(TokenType::Semicolon, "Expect ';' after expression.")?;
+
+        return Ok(Stmt::Expression { expression: expr });
     }
 
     pub fn expression(&mut self) -> Result<Expr, String> {
-        return self.equality();
+        return self.assignment();
     }
 
-    fn equality(&mut self) -> Result<Expr, String> {
-        let mut expr = self.comparison();
+    pub fn assignment(&mut self) -> Result<Expr, String> {
+        let expr = self.equality();
 
-        while self.match_tokens(vec![TokenType::BangEqual, TokenType::EqualEqual])? {
-            expr = Ok(Expr::Binary {
-                left: Box::from(expr?.clone()),
-                operator: self.previous()?.clone(),
-                right: Box::from(self.comparison()?.clone()),
-            });
+        if self.match_token(TokenType::Equal)? {
+            let equals = self.previous()?;
+            let value = self.assignment()?;
+
+            match expr? {
+                Expr::Variable { name } => {
+                    return Ok(Expr::Assign {
+                        name,
+                        value: Box::from(value),
+                    })
+                }
+                _ => return Err(format!("Invalid assignment target: '{:?}'.", equals)),
+            }
         }
 
         return expr;
     }
 
     fn previous(&self) -> Result<Token, String> {
-        let prev = self.tokens.get(self.curr - 1);
+        let mut prev = None;
+
+        if self.curr >= 1 {
+            prev = self.tokens.get(self.curr - 1);
+        }
 
         match prev {
             Some(token) => return Ok(token.clone()),
-            None => return Err("Canno find any previous value.".to_string()),
+            None => return Err("Cannot find any previous value.".to_string()),
         }
     }
 
@@ -75,13 +161,35 @@ impl Parser {
 
     fn match_tokens(&mut self, token_types: Vec<TokenType>) -> Result<bool, String> {
         for token_type in token_types {
-            if self.check(token_type) {
-                self.advance()?;
+            if self.match_token(token_type)? {
                 return Ok(true);
             }
         }
 
         return Ok(false);
+    }
+
+    fn match_token(&mut self, token_type: TokenType) -> Result<bool, String> {
+        if self.check(token_type) {
+            self.advance()?;
+            return Ok(true);
+        } else {
+            return Ok(false);
+        }
+    }
+
+    fn equality(&mut self) -> Result<Expr, String> {
+        let mut expr = self.comparison();
+
+        while self.match_tokens(vec![TokenType::BangEqual, TokenType::EqualEqual])? {
+            expr = Ok(Expr::Binary {
+                left: Box::from(expr?.clone()),
+                operator: self.previous()?.clone(),
+                right: Box::from(self.comparison()?.clone()),
+            });
+        }
+
+        return expr;
     }
 
     fn comparison(&mut self) -> Result<Expr, String> {
@@ -110,7 +218,7 @@ impl Parser {
             expr = Ok(Expr::Binary {
                 left: Box::from(expr?.clone()),
                 operator: self.previous()?.clone(),
-                right: Box::from(self.unary()?),
+                right: Box::from(self.factor()?),
             });
         }
 
@@ -143,53 +251,59 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Result<Expr, String> {
-        if self.match_tokens(vec![TokenType::False])? {
-            return Ok(Expr::Literal {
-                value: Literal::False,
-            });
+        let mut result = None;
+
+        if let Some(token) = self.peek() {
+            match token.token_type {
+                TokenType::LeftParen => {
+                    self.advance()?;
+                    let expr = self.expression()?;
+                    self.consume(TokenType::RightParen, "Expected ')'")?;
+                    result = Some(Expr::Grouping {
+                        expression: Box::from(expr),
+                    });
+                }
+                TokenType::False
+                | TokenType::True
+                | TokenType::Nil
+                | TokenType::Number
+                | TokenType::String => {
+                    self.advance()?;
+                    let token = self.previous()?;
+                    result = Some(Expr::Literal {
+                        value: Literal::from_token(token),
+                    });
+                }
+                TokenType::Identifier => {
+                    self.advance()?;
+                    result = Some(Expr::Variable {
+                        name: self.previous()?,
+                    });
+                }
+
+                _ => return Err("Expected expression.".to_string()),
+            }
         }
 
-        if self.match_tokens(vec![TokenType::True])? {
-            return Ok(Expr::Literal {
-                value: Literal::True,
-            });
+        if let Some(res) = result {
+            return Ok(res);
+        } else {
+            return Err("Expected expression.".to_string());
         }
-
-        if self.match_tokens(vec![TokenType::Nil])? {
-            return Ok(Expr::Literal {
-                value: Literal::Nil,
-            });
-        }
-
-        if self.match_tokens(vec![TokenType::Number, TokenType::String])? {
-            return Ok(Expr::Literal {
-                value: expr::Literal::from_token_literal(self.previous().unwrap().literal.unwrap()),
-            });
-        }
-
-        if self.match_tokens(vec![TokenType::LeftParen])? {
-            let expr = self.expression()?;
-            self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
-            return Ok(Expr::Grouping {
-                expression: Box::from(expr),
-            });
-        }
-
-        return Err("Expected expression".to_string());
     }
 
-    fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<(), String> {
+    fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<Token, String> {
         let token = self.peek();
 
         if token.is_some() && token.unwrap().token_type == token_type {
             self.advance()?;
-            return Ok(());
+            let token = self.previous()?;
+            return Ok(token);
         } else {
             return Err(msg.to_string());
         }
     }
 
-    #[allow(dead_code)]
     fn synchronize(&mut self) -> Result<(), String> {
         self.advance()?;
 
@@ -206,7 +320,7 @@ impl Parser {
             match token_type {
                 TokenType::Class
                 | TokenType::Fun
-                | TokenType::Let
+                | TokenType::Var
                 | TokenType::For
                 | TokenType::If
                 | TokenType::While
