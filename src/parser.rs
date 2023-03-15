@@ -74,9 +74,22 @@ impl Parser {
     fn statement(&mut self) -> Result<Stmt, String> {
         if self.match_token(TokenType::Print)? {
             return self.print_statement();
+        } else if self.match_token(TokenType::LeftBrace)? {
+            return self.block_statement();
         } else {
             return self.expression_statement();
         }
+    }
+
+    fn block_statement(&mut self) -> Result<Stmt, String> {
+        let mut statements = Vec::new();
+
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            statements.push(self.declaration()?);
+        }
+
+        self.consume(TokenType::RightBrace, "Expected '}' after a block")?;
+        return Ok(Stmt::Block { statements });
     }
 
     fn print_statement(&mut self) -> Result<Stmt, String> {
@@ -88,6 +101,7 @@ impl Parser {
 
     fn expression_statement(&mut self) -> Result<Stmt, String> {
         let expr = self.expression()?;
+
         self.consume(TokenType::Semicolon, "Expect ';' after expression.")?;
 
         return Ok(Stmt::Expression { expression: expr });
@@ -111,7 +125,7 @@ impl Parser {
                         value: Box::from(value),
                     })
                 }
-                _ => return Err(format!("Invalid assignment target: '{:?}'.", equals)),
+                _ => return Err(format!("Invalid assignment target: '{equals:?}'.")),
             }
         }
 

@@ -25,11 +25,22 @@ impl Interpreter {
                 }
                 Stmt::Print { expression } => {
                     let value = expression.evaluate(&mut self.environment)?;
-                    println!("{:?}", value);
+                    println!("{value:?}");
                 }
                 Stmt::Var { name, initializer } => {
                     let value = initializer.evaluate(&mut self.environment)?;
                     self.environment.define(name.value, value);
+                }
+                Stmt::Block { statements } => {
+                    let mut new_environment = Environment::new();
+                    new_environment.enclosing = Some(Box::from(self.environment.clone()));
+
+                    let old_environment = self.environment.clone();
+                    self.environment = new_environment;
+                    self.interpret(statements)?;
+                    self.environment = old_environment;
+
+                    return Ok(());
                 }
             };
         }

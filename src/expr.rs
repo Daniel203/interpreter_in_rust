@@ -37,7 +37,7 @@ impl Literal {
                 } else if val == "Nil" {
                     return Self::Nil;
                 } else {
-                    panic!("Could not create literal from value {:?}.", val);
+                    panic!("Could not create literal from value {val:?}.");
                 }
             }
         };
@@ -162,11 +162,9 @@ impl Expr {
 
                 return match (right.clone(), operator.token_type) {
                     (Literal::Number(x), TokenType::Minus) => Ok(Literal::Number(-x)),
-                    (_, TokenType::Minus) => Err(format!("Minus not implemented for {:?}", right)),
+                    (_, TokenType::Minus) => Err(format!("Minus not implemented for {right:?}")),
                     (any, TokenType::Bang) => Ok(any.is_falsey()),
-                    (_, token_type) => {
-                        Err(format!("{:?} is not a valid unary operator", token_type))
-                    }
+                    (_, token_type) => Err(format!("{token_type:?} is not a valid unary operator")),
                 };
             }
             Expr::Binary {
@@ -191,13 +189,13 @@ impl Expr {
                         return Ok(Literal::Number(l + r));
                     }
                     (Literal::String(l), TokenType::Plus, Literal::String(r)) => {
-                        return Ok(Literal::String(format!("{}{}", l, r)));
+                        return Ok(Literal::String(format!("{l}{r}")));
                     }
                     (Literal::Number(l), TokenType::Plus, Literal::String(r)) => {
-                        return Ok(Literal::String(format!("{}{}", l, r)));
+                        return Ok(Literal::String(format!("{l}{r}")));
                     }
                     (Literal::String(l), TokenType::Plus, Literal::Number(r)) => {
-                        return Ok(Literal::String(format!("{}{}", l, r)));
+                        return Ok(Literal::String(format!("{l}{r}")));
                     }
 
                     (Literal::Number(l), TokenType::Greater, Literal::Number(r)) => {
@@ -233,15 +231,14 @@ impl Expr {
                     }
 
                     (Literal::String(_), op, Literal::Number(_)) => {
-                        return Err(format!("{:?} is not defined for string and number", op));
+                        return Err(format!("{op:?} is not defined for string and number"));
                     }
                     (Literal::Number(_), op, Literal::String(_)) => {
-                        return Err(format!("{:?} is not defined for number and string", op));
+                        return Err(format!("{op:?} is not defined for number and string"));
                     }
 
                     (l, token_type, r) => Err(format!(
-                        "{:?} is not implemented for operands {:?} {:?}",
-                        token_type, l, r
+                        "{token_type:?} is not implemented for operands {l:?} {r:?}",
                     )),
                 }
             }

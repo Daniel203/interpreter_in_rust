@@ -5,7 +5,7 @@ use crate::expr::Literal;
 #[derive(Debug, Clone)]
 pub struct Environment {
     values: HashMap<String, Literal>,
-    enclosing: Option<Box<Environment>>,
+    pub enclosing: Option<Box<Environment>>,
 }
 
 impl Default for Environment {

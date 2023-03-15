@@ -51,7 +51,7 @@ impl Lexer {
             '(' => self.add_token(TokenType::LeftParen, None),
             ')' => self.add_token(TokenType::RightParen, None),
             '{' => self.add_token(TokenType::LeftBrace, None),
-            '}' => self.add_token(TokenType::RightParen, None),
+            '}' => self.add_token(TokenType::RightBrace, None),
             ',' => self.add_token(TokenType::Comma, None),
             '.' => self.add_token(TokenType::Dot, None),
             '-' => self.add_token(TokenType::Minus, None),
@@ -125,8 +125,8 @@ impl Lexer {
 
     fn is_alphanumeric(&self, ch: char) -> bool {
         return ch.is_ascii_digit()
-            || ('a'..='z').contains(&ch)
-            || ('A'..='Z').contains(&ch)
+            || ch.is_ascii_lowercase()
+            || ch.is_ascii_uppercase()
             || ch == '_';
     }
 
