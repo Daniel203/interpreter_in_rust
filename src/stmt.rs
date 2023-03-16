@@ -2,10 +2,24 @@ use crate::{expr::Expr, token::Token};
 
 #[derive(Debug, PartialEq)]
 pub enum Stmt {
-    Expression { expression: Expr },
-    Print { expression: Expr },
-    Var { name: Token, initializer: Expr },
-    Block { statements: Vec<Stmt> },
+    Expression {
+        expression: Expr,
+    },
+    Print {
+        expression: Expr,
+    },
+    Var {
+        name: Token,
+        initializer: Expr,
+    },
+    Block {
+        statements: Vec<Stmt>,
+    },
+    IfStmt {
+        condition: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+    },
 }
 
 impl ToString for Stmt {
@@ -26,6 +40,11 @@ impl ToString for Stmt {
                         .collect::<String>()
                 );
             }
+            Stmt::IfStmt {
+                condition: _,
+                then_branch: _,
+                else_branch: _,
+            } => todo!(),
         }
     }
 }

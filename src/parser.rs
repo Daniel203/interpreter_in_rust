@@ -76,20 +76,11 @@ impl Parser {
             return self.print_statement();
         } else if self.match_token(TokenType::LeftBrace)? {
             return self.block_statement();
+        } else if self.match_token(TokenType::If)? {
+            return self.if_statement();
         } else {
             return self.expression_statement();
         }
-    }
-
-    fn block_statement(&mut self) -> Result<Stmt, String> {
-        let mut statements = Vec::new();
-
-        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
-            statements.push(self.declaration()?);
-        }
-
-        self.consume(TokenType::RightBrace, "Expected '}' after a block")?;
-        return Ok(Stmt::Block { statements });
     }
 
     fn print_statement(&mut self) -> Result<Stmt, String> {
@@ -104,6 +95,38 @@ impl Parser {
         self.consume(TokenType::Semicolon, "Expect ';' after expression.")?;
 
         return Ok(Stmt::Expression { expression: expr });
+    }
+
+    fn block_statement(&mut self) -> Result<Stmt, String> {
+        let mut statements = Vec::new();
+
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            statements.push(self.declaration()?);
+        }
+
+        self.consume(TokenType::RightBrace, "Expected '}' after a block")?;
+        return Ok(Stmt::Block { statements });
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt, String> {
+        self.consume(TokenType::LeftParen, "Expected ')' after 'if'")?;
+        let condition = self.expression()?;
+
+        self.consume(TokenType::RightParen, "Expected ')' after 'if-condition'")?;
+        let then_branch = Box::from(self.statement()?);
+
+        let else_branch = if self.match_token(TokenType::Else)? {
+            let stmt = self.statement()?;
+            Some(Box::from(stmt))
+        } else {
+            None
+        };
+
+        return Ok(Stmt::IfStmt {
+            condition,
+            then_branch,
+            else_branch,
+        });
     }
 
     pub fn expression(&mut self) -> Result<Expr, String> {

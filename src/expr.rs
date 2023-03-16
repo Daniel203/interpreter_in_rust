@@ -80,6 +80,28 @@ impl Literal {
             Literal::Nil => Literal::False,
         };
     }
+
+    pub fn is_truthy(&self) -> Literal {
+        return match self {
+            Literal::Number(x) => {
+                if *x == 0 as f64 {
+                    Literal::False
+                } else {
+                    Literal::True
+                }
+            }
+            Literal::String(x) => {
+                if x.is_empty() {
+                    Literal::False
+                } else {
+                    Literal::True
+                }
+            }
+            Literal::True => Literal::True,
+            Literal::False => Literal::False,
+            Literal::Nil => Literal::True,
+        };
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
