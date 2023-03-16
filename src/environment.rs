@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::expr::Literal;
 
 #[derive(Debug, Clone)]
 pub struct Environment {
     values: HashMap<String, Literal>,
-    pub enclosing: Option<Box<Environment>>,
+    pub enclosing: Option<Rc<Environment>>,
 }
 
 impl Default for Environment {
@@ -45,7 +45,9 @@ impl Environment {
                 return true;
             }
             (None, Some(env)) => {
-                return env.assign(name, value);
+                return Rc::get_mut(&mut env.clone())
+                    .expect("Could not get mutable ref to env")
+                    .assign(name, value);
             }
             (None, None) => return false,
         };

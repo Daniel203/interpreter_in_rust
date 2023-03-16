@@ -101,7 +101,6 @@ impl Parser {
 
     fn expression_statement(&mut self) -> Result<Stmt, String> {
         let expr = self.expression()?;
-
         self.consume(TokenType::Semicolon, "Expect ';' after expression.")?;
 
         return Ok(Stmt::Expression { expression: expr });

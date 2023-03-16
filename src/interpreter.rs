@@ -1,7 +1,9 @@
+use std::rc::Rc;
+
 use crate::{environment::Environment, stmt::Stmt};
 
 pub struct Interpreter {
-    environment: Environment,
+    environment: Rc<Environment>,
 }
 
 impl Default for Interpreter {
@@ -13,7 +15,7 @@ impl Default for Interpreter {
 impl Interpreter {
     pub fn new() -> Self {
         return Self {
-            environment: Environment::new(),
+            environment: Rc::new(Environment::new()),
         };
     }
 
@@ -21,26 +23,37 @@ impl Interpreter {
         for stmt in stmts {
             match stmt {
                 Stmt::Expression { expression } => {
-                    expression.evaluate(&mut self.environment)?;
+                    expression.evaluate(
+                        Rc::get_mut(&mut self.environment)
+                            .expect("Could not get mutable referenc to environment"),
+                    )?;
                 }
                 Stmt::Print { expression } => {
-                    let value = expression.evaluate(&mut self.environment)?;
+                    let value = expression.evaluate(
+                        Rc::get_mut(&mut self.environment)
+                            .expect("Could not get mutable ref to env"),
+                    )?;
                     println!("{value:?}");
                 }
                 Stmt::Var { name, initializer } => {
-                    let value = initializer.evaluate(&mut self.environment)?;
-                    self.environment.define(name.value, value);
+                    let value = initializer.evaluate(
+                        Rc::get_mut(&mut self.environment)
+                            .expect("Could not get mutable ref to env"),
+                    )?;
+
+                    Rc::get_mut(&mut self.environment)
+                        .expect("Could not get mutable ref to env")
+                        .define(name.value, value);
                 }
                 Stmt::Block { statements } => {
                     let mut new_environment = Environment::new();
-                    new_environment.enclosing = Some(Box::from(self.environment.clone()));
+                    new_environment.enclosing = Some(self.environment.clone());
 
                     let old_environment = self.environment.clone();
-                    self.environment = new_environment;
+
+                    self.environment = Rc::new(new_environment);
                     self.interpret(statements)?;
                     self.environment = old_environment;
-
-                    return Ok(());
                 }
             };
         }
