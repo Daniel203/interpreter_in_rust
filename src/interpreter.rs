@@ -27,7 +27,7 @@ impl Interpreter {
                 }
                 Stmt::Print { expression } => {
                     let value = expression.evaluate(self.environment.clone())?;
-                    println!("{value:?}");
+                    println!("{}", value.to_string());
                 }
                 Stmt::Var { name, initializer } => {
                     let value = initializer.evaluate(self.environment.clone())?;

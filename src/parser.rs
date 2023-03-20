@@ -135,7 +135,10 @@ impl Parser {
         self.consume(TokenType::LeftParen, "Expected ')' after 'while'")?;
         let condition = self.expression()?;
 
-        self.consume(TokenType::RightParen, "Expected ')' after 'while-condition'")?;
+        self.consume(
+            TokenType::RightParen,
+            "Expected ')' after 'while-condition'",
+        )?;
         let body = Box::from(self.statement()?);
 
         return Ok(Stmt::WhileStmt { condition, body });

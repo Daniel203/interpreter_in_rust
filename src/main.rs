@@ -10,6 +10,10 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     match args.len() {
+        3 => match run_string(&args[2]) {
+            Ok(_) => exit(0),
+            Err(err) => error(&err, 64),
+        },
         2 => {
             match run_file(&args[1]) {
                 Ok(_) => exit(0),
@@ -67,4 +71,10 @@ fn run_prompt() -> Result<(), String> {
             run(&buf, &mut interpreter)?;
         }
     }
+}
+
+pub fn run_string(contents: &str) -> Result<(), String> {
+    let mut interpreter = Interpreter::new();
+
+    return run(contents, &mut interpreter);
 }
