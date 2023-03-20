@@ -24,6 +24,22 @@ impl ToString for Literal {
     }
 }
 
+fn unwrap_as_f64(literal: Option<token::Literal>) -> f64 {
+    if let Some(token::Literal::Number(x)) = literal {
+        return x;
+    } else {
+        panic!("Could not unwrap as f64")
+    }
+}
+
+fn unwrap_as_string(literal: Option<token::Literal>) -> String {
+    if let Some(token::Literal::String(s)) = literal {
+        return s;
+    } else {
+        panic!("Could not unwrap as string")
+    }
+}
+
 impl Literal {
     pub fn from_token_literal(literal: token::Literal) -> Self {
         return match literal {
@@ -44,10 +60,13 @@ impl Literal {
     }
 
     pub fn from_token(token: Token) -> Self {
-        if let Some(literal) = token.literal {
-            return Literal::from_token_literal(literal);
-        } else {
-            panic!("Token {} doesn't have literal.", token.to_string());
+        match token.token_type {
+            TokenType::Number => Self::Number(unwrap_as_f64(token.literal)),
+            TokenType::String => Self::String(unwrap_as_string(token.literal)),
+            TokenType::False => Self::False,
+            TokenType::True => Self::True,
+            TokenType::Nil => Self::Nil,
+            _ => panic!("Could not create LiteralValue from {:?}", token),
         }
     }
 
@@ -121,6 +140,11 @@ pub enum Expr {
     Literal {
         value: Literal,
     },
+    Logical {
+        left: Box<Expr>,
+        operator: Token,
+        right: Box<Expr>,
+    },
     Unary {
         operator: Token,
         right: Box<Expr>,
@@ -156,6 +180,16 @@ impl ToString for Expr {
             }
             Expr::Variable { name } => format!("(var {})", name.value),
             Expr::Assign { name, value } => format!("({:?} = {})", name, (*value).to_string()),
+            Expr::Logical {
+                left,
+                operator,
+                right,
+            } => format!(
+                "({} {} {})",
+                operator.to_string(),
+                left.to_string(),
+                right.to_string()
+            ),
         }
     }
 }
@@ -189,6 +223,34 @@ impl Expr {
                     (_, token_type) => Err(format!("{token_type:?} is not a valid unary operator")),
                 };
             }
+            Expr::Logical {
+                left,
+                operator,
+                right,
+            } => match operator.token_type {
+                TokenType::Or => {
+                    let left_value = left.evaluate(environment)?;
+                    let left_true = left_value.is_truthy();
+
+                    if left_true == Literal::True {
+                        return Ok(left_value);
+                    } else {
+                        return right.evaluate(environment);
+                    }
+                }
+                TokenType::And => {
+                    let left_true = left.evaluate(environment)?.is_truthy();
+
+                    if left_true == Literal::False {
+                        return Ok(Literal::False);
+                    } else {
+                        return right.evaluate(environment);
+                    }
+                }
+                token_type => Err(format!(
+                    "Invalid token in logical expression: {token_type:?}"
+                )),
+            },
             Expr::Binary {
                 left,
                 operator,
