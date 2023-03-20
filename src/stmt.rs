@@ -1,6 +1,6 @@
 use crate::{expr::Expr, token::Token};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Stmt {
     Expression {
         expression: Expr,
@@ -13,12 +13,16 @@ pub enum Stmt {
         initializer: Expr,
     },
     Block {
-        statements: Vec<Stmt>,
+        statements: Vec<Box<Stmt>>,
     },
     IfStmt {
         condition: Expr,
         then_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
+    },
+    WhileStmt {
+        condition: Expr,
+        body: Box<Stmt>,
     },
 }
 
@@ -44,6 +48,10 @@ impl ToString for Stmt {
                 condition: _,
                 then_branch: _,
                 else_branch: _,
+            } => todo!(),
+            Stmt::WhileStmt {
+                condition: _,
+                body: _,
             } => todo!(),
         }
     }

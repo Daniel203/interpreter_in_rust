@@ -35,7 +35,7 @@ impl Parser {
         if errs.is_empty() {
             return Ok(stmts);
         } else {
-            return Err(errs.join("/n"));
+            return Err(errs.join("\n"));
         }
     }
 
@@ -78,6 +78,8 @@ impl Parser {
             return self.block_statement();
         } else if self.match_token(TokenType::If)? {
             return self.if_statement();
+        } else if self.match_token(TokenType::While)? {
+            return self.while_statement();
         } else {
             return self.expression_statement();
         }
@@ -101,7 +103,7 @@ impl Parser {
         let mut statements = Vec::new();
 
         while !self.check(TokenType::RightBrace) && !self.is_at_end() {
-            statements.push(self.declaration()?);
+            statements.push(Box::new(self.declaration()?));
         }
 
         self.consume(TokenType::RightBrace, "Expected '}' after a block")?;
@@ -127,6 +129,16 @@ impl Parser {
             then_branch,
             else_branch,
         });
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt, String> {
+        self.consume(TokenType::LeftParen, "Expected ')' after 'while'")?;
+        let condition = self.expression()?;
+
+        self.consume(TokenType::RightParen, "Expected ')' after 'while-condition'")?;
+        let body = Box::from(self.statement()?);
+
+        return Ok(Stmt::WhileStmt { condition, body });
     }
 
     pub fn expression(&mut self) -> Result<Expr, String> {

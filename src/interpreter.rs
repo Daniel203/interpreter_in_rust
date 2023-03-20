@@ -1,9 +1,9 @@
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{environment::Environment, expr::Literal, stmt::Stmt};
 
 pub struct Interpreter {
-    environment: Rc<Environment>,
+    environment: Rc<RefCell<Environment>>,
 }
 
 impl Default for Interpreter {
@@ -15,35 +15,26 @@ impl Default for Interpreter {
 impl Interpreter {
     pub fn new() -> Self {
         return Self {
-            environment: Rc::new(Environment::new()),
+            environment: Rc::new(RefCell::new(Environment::new())),
         };
     }
 
-    pub fn interpret(&mut self, stmts: Vec<Stmt>) -> Result<(), String> {
+    pub fn interpret(&mut self, stmts: Vec<&Stmt>) -> Result<(), String> {
         for stmt in stmts {
             match stmt {
                 Stmt::Expression { expression } => {
-                    expression.evaluate(
-                        Rc::get_mut(&mut self.environment)
-                            .expect("Could not get mutable referenc to environment"),
-                    )?;
+                    expression.evaluate(self.environment.clone())?;
                 }
                 Stmt::Print { expression } => {
-                    let value = expression.evaluate(
-                        Rc::get_mut(&mut self.environment)
-                            .expect("Could not get mutable ref to env"),
-                    )?;
+                    let value = expression.evaluate(self.environment.clone())?;
                     println!("{value:?}");
                 }
                 Stmt::Var { name, initializer } => {
-                    let value = initializer.evaluate(
-                        Rc::get_mut(&mut self.environment)
-                            .expect("Could not get mutable ref to env"),
-                    )?;
+                    let value = initializer.evaluate(self.environment.clone())?;
 
-                    Rc::get_mut(&mut self.environment)
-                        .expect("Could not get mutable ref to env")
-                        .define(name.value, value);
+                    self.environment
+                        .borrow_mut()
+                        .define(name.value.clone(), value);
                 }
                 Stmt::Block { statements } => {
                     let mut new_environment = Environment::new();
@@ -51,8 +42,8 @@ impl Interpreter {
 
                     let old_environment = self.environment.clone();
 
-                    self.environment = Rc::new(new_environment);
-                    self.interpret(statements)?;
+                    self.environment = Rc::new(RefCell::new(new_environment));
+                    self.interpret((*statements).iter().map(|b| b.as_ref()).collect())?;
                     self.environment = old_environment;
                 }
                 Stmt::IfStmt {
@@ -60,15 +51,21 @@ impl Interpreter {
                     then_branch,
                     else_branch,
                 } => {
-                    let truth_value = condition.evaluate(
-                        Rc::get_mut(&mut self.environment)
-                            .expect("Could not get mutable ref to env"),
-                    )?;
+                    let truth_value = condition.evaluate(self.environment.clone())?;
 
                     if truth_value.is_truthy() == Literal::True {
-                        self.interpret(vec![*then_branch])?;
+                        self.interpret(vec![then_branch.as_ref()])?;
                     } else if let Some(else_stmt) = else_branch {
-                        self.interpret(vec![*else_stmt])?;
+                        self.interpret(vec![else_stmt.as_ref()])?;
+                    }
+                }
+                Stmt::WhileStmt { condition, body } => {
+                    let mut flag = condition.evaluate(self.environment.clone())?;
+
+                    while flag.is_truthy() == Literal::True {
+                        self.interpret(vec![body.as_ref()])?;
+
+                        flag = condition.evaluate(self.environment.clone())?;
                     }
                 }
             };

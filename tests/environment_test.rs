@@ -5,14 +5,14 @@ use programming_language::expr::Literal;
 fn define_and_get_variable() {
     let mut env = Environment::new();
     env.define("x".to_string(), Literal::Number(42.0));
-    let value = env.get("x".to_string());
-    assert_eq!(value, Some(&Literal::Number(42.0)));
+    let value = env.get("x");
+    assert_eq!(value, Some(Literal::Number(42.0)));
 }
 
 #[test]
 fn undefined_variable() {
     let env = Environment::new();
-    let value = env.get("x".to_string());
+    let value = env.get("x");
     assert_eq!(value, None);
 }
 
@@ -20,18 +20,18 @@ fn undefined_variable() {
 fn assign_existing_variable() {
     let mut env = Environment::new();
     env.define("x".to_string(), Literal::Number(42.0));
-    let value = env.get("x".to_string());
-    assert_eq!(value, Some(&Literal::Number(42.0)));
+    let value = env.get("x");
+    assert_eq!(value, Some(Literal::Number(42.0)));
 
     env.define("x".to_string(), Literal::Number(43.0));
-    let value = env.get("x".to_string());
-    assert_eq!(value, Some(&Literal::Number(43.0)));
+    let value = env.get("x");
+    assert_eq!(value, Some(Literal::Number(43.0)));
 }
 
 #[test]
 fn assign_non_existing_variable() {
     let mut env = Environment::new();
     env.define("x".to_string(), Literal::Number(42.0));
-    let value = env.get("x".to_string());
-    assert_eq!(value, Some(&Literal::Number(42.0)));
+    let value = env.get("x");
+    assert_eq!(value, Some(Literal::Number(42.0)));
 }

@@ -46,7 +46,7 @@ fn run(src: &str, interpreter: &mut Interpreter) -> Result<(), String> {
     let mut parser = Parser::new(tokens);
     let stmts = parser.parse()?;
 
-    interpreter.interpret(stmts)?;
+    interpreter.interpret(stmts.iter().collect())?;
 
     return Ok(());
 }

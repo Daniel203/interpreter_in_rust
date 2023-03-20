@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use programming_language::environment::Environment;
 use programming_language::expr::{Expr, Literal};
 use programming_language::token::Token;
@@ -51,6 +54,6 @@ fn test_evaluate() {
         }),
     };
 
-    let result = expr.evaluate(&mut env).unwrap();
+    let result = expr.evaluate(Rc::new(RefCell::new(env))).unwrap();
     assert_eq!(result, Literal::Number(12.0));
 }

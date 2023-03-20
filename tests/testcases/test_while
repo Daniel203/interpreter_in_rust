@@ -1,0 +1,5 @@
+var a = 2;
+while (a) {
+    print "while loop, variable a = " + a; 
+    a = a - 1;
+}

@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::environment::Environment;
 use crate::token;
 use crate::token::Token;
@@ -195,17 +198,19 @@ impl ToString for Expr {
 }
 
 impl Expr {
-    pub fn evaluate(&self, environment: &mut Environment) -> Result<Literal, String> {
+    pub fn evaluate(&self, environment: Rc<RefCell<Environment>>) -> Result<Literal, String> {
         return match self {
             Expr::Grouping { expression } => expression.evaluate(environment),
             Expr::Literal { value } => Ok(value.clone()),
-            Expr::Variable { name } => match environment.get(name.value.clone()) {
-                Some(value) => Ok(value.clone()),
+            Expr::Variable { name } => match environment.borrow().get(&name.value) {
+                Some(value) => Ok(value),
                 None => Err(format!("Undefined variable '{}'.", name.value)),
             },
             Expr::Assign { name, value } => {
-                let new_value = (*value).evaluate(environment)?;
-                let assign_succes = environment.assign(&name.value, new_value.clone());
+                let new_value = (*value).evaluate(environment.clone())?;
+                let assign_succes = environment
+                    .borrow_mut()
+                    .assign(&name.value, new_value.clone());
 
                 if assign_succes {
                     return Ok(new_value);
@@ -229,7 +234,7 @@ impl Expr {
                 right,
             } => match operator.token_type {
                 TokenType::Or => {
-                    let left_value = left.evaluate(environment)?;
+                    let left_value = left.evaluate(environment.clone())?;
                     let left_true = left_value.is_truthy();
 
                     if left_true == Literal::True {
@@ -239,7 +244,7 @@ impl Expr {
                     }
                 }
                 TokenType::And => {
-                    let left_true = left.evaluate(environment)?.is_truthy();
+                    let left_true = left.evaluate(environment.clone())?.is_truthy();
 
                     if left_true == Literal::False {
                         return Ok(Literal::False);
@@ -256,7 +261,7 @@ impl Expr {
                 operator,
                 right,
             } => {
-                let left = (*left).evaluate(environment)?;
+                let left = (*left).evaluate(environment.clone())?;
                 let right = (*right).evaluate(environment)?;
 
                 match (left, operator.token_type, right) {
