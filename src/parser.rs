@@ -80,6 +80,8 @@ impl Parser {
             return self.if_statement();
         } else if self.match_token(TokenType::While)? {
             return self.while_statement();
+        } else if self.match_token(TokenType::For)? {
+            return self.for_statement();
         } else {
             return self.expression_statement();
         }
@@ -142,6 +144,67 @@ impl Parser {
         let body = Box::from(self.statement()?);
 
         return Ok(Stmt::WhileStmt { condition, body });
+    }
+
+    fn for_statement(&mut self) -> Result<Stmt, String> {
+        self.consume(TokenType::LeftParen, "Expected ')' after 'while'")?;
+
+        let initializer = if self.match_token(TokenType::Semicolon)? {
+            None
+        } else if self.match_token(TokenType::Var)? {
+            let var_decl = self.var_declaration()?;
+            Some(var_decl)
+        } else {
+            let expr = self.expression_statement()?;
+            Some(expr)
+        };
+
+        let condition = if !self.check(TokenType::Semicolon) {
+            let expr = self.expression()?;
+            Some(expr)
+        } else {
+            None
+        };
+        self.consume(TokenType::Semicolon, "Expected ';' after loop condition.")?;
+
+        let increment = if !self.check(TokenType::RightParen) {
+            let expr = self.expression()?;
+            Some(expr)
+        } else {
+            None
+        };
+        self.consume(TokenType::RightParen, "Expected ')' after for clauses.")?;
+
+        let mut body = self.statement()?;
+
+        if let Some(incr) = increment {
+            body = Stmt::Block {
+                statements: vec![
+                    Box::new(body),
+                    Box::new(Stmt::Expression { expression: incr }),
+                ],
+            }
+        }
+
+        let cond = match condition {
+            Some(c) => c,
+            None => Expr::Literal {
+                value: Literal::True,
+            },
+        };
+
+        body = Stmt::WhileStmt {
+            condition: cond,
+            body: Box::new(body),
+        };
+
+        if let Some(init) = initializer {
+            body = Stmt::Block {
+                statements: vec![Box::new(init), Box::new(body)],
+            }
+        }
+
+        return Ok(body);
     }
 
     pub fn expression(&mut self) -> Result<Expr, String> {
