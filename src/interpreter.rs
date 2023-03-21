@@ -138,7 +138,7 @@ impl Interpreter {
                             }
                         }
 
-                        return value;
+                        return Literal::Nil;
                     };
 
                     let callable = Literal::Callable {
