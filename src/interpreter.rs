@@ -2,7 +2,9 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{environment::Environment, expr::Literal, stmt::Stmt, token::Token};
 
+#[derive(Debug)]
 pub struct Interpreter {
+    specials: Rc<RefCell<Environment>>,
     environment: Rc<RefCell<Environment>>,
 }
 
@@ -27,15 +29,16 @@ impl Interpreter {
         let name = "clock".to_string();
 
         globals.define(
-            "clock".to_string(),
+            name.clone(),
             Literal::Callable {
-                name: "clock".to_string(),
+                name,
                 arity: 0,
                 fun: Rc::new(clock_impl),
             },
         );
 
         return Self {
+            specials: Rc::new(RefCell::new(Environment::new())),
             environment: Rc::new(RefCell::new(globals)),
         };
     }
@@ -44,7 +47,10 @@ impl Interpreter {
         let environment = Rc::new(RefCell::new(Environment::new()));
         environment.borrow_mut().enclosing = Some(parent);
 
-        return Self { environment };
+        return Self {
+            specials: Rc::new(RefCell::new(Environment::new())),
+            environment,
+        };
     }
 
     pub fn interpret(&mut self, stmts: Vec<&Stmt>) -> Result<(), String> {
@@ -117,7 +123,7 @@ impl Interpreter {
                             );
                         }
 
-                        for i in 0..body.len() - 1 {
+                        for i in 0..body.len() {
                             clos_int
                                 .interpret(vec![body
                                     .get(i)
@@ -126,20 +132,11 @@ impl Interpreter {
                                 .unwrap_or_else(|_| {
                                     panic!("Evaluating failed inside {name_clone}")
                                 });
-                        }
 
-                        let value = match body
-                            .last()
-                            .unwrap_or_else(|| {
-                                panic!("Element in position {} not found", body.len() - 1)
-                            })
-                            .as_ref()
-                        {
-                            Stmt::Expression { expression } => {
-                                expression.evaluate(clos_int.environment.clone()).unwrap()
+                            if let Some(value) = clos_int.specials.borrow_mut().get("return") {
+                                return value;
                             }
-                            _ => todo!("Didn't get an expression"),
-                        };
+                        }
 
                         return value;
                     };
@@ -153,6 +150,17 @@ impl Interpreter {
                     self.environment
                         .borrow_mut()
                         .define(name.value.clone(), callable);
+                }
+                Stmt::ReturnStmt { keyword: _, value } => {
+                    let eval_value = if let Some(value) = value {
+                        value.evaluate(self.environment.clone())?
+                    } else {
+                        Literal::Nil
+                    };
+
+                    self.specials
+                        .borrow_mut()
+                        .define_top_level("return".to_string(), eval_value);
                 }
             };
         }

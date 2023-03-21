@@ -7,7 +7,7 @@ use crate::token;
 use crate::token::Token;
 use crate::token_type::TokenType;
 
-type CallableFunction = Rc<dyn Fn(&[Literal]) -> Literal>;
+type CallableFunction = Rc<dyn Fn(Rc<RefCell<Environment>>, &[Literal]) -> Literal>;
 
 #[derive(Clone)]
 pub enum Literal {
