@@ -24,6 +24,11 @@ pub enum Stmt {
         condition: Expr,
         body: Box<Stmt>,
     },
+    Function {
+        name: Token,
+        params: Vec<Token>,
+        body: Vec<Box<Stmt>>,
+    },
 }
 
 impl ToString for Stmt {
@@ -51,6 +56,11 @@ impl ToString for Stmt {
             } => todo!(),
             Stmt::WhileStmt {
                 condition: _,
+                body: _,
+            } => todo!(),
+            Stmt::Function {
+                name: _,
+                params: _,
                 body: _,
             } => todo!(),
         }

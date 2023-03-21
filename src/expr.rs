@@ -113,7 +113,7 @@ impl Literal {
             TokenType::False => Self::False,
             TokenType::True => Self::True,
             TokenType::Nil => Self::Nil,
-            _ => panic!("Could not create LiteralValue from {:?}", token),
+            _ => panic!("Could not create LiteralValue from {token:?}"),
         }
     }
 
@@ -320,7 +320,7 @@ impl Expr {
                             args_val.push(arg.evaluate(environment.clone())?);
                         }
 
-                        return Ok(fun(&args_val));
+                        return Ok(fun(environment, &args_val));
                     }
                     other => return Err(format!("{} is not callable", other.to_string())),
                 };
