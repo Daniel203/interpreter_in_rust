@@ -3,7 +3,17 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{environment::Environment, expr::Literal, stmt::Stmt};
 
 pub struct Interpreter {
+    //globals: Environment,
     environment: Rc<RefCell<Environment>>,
+}
+
+fn clock_impl(_args: &[Literal]) -> Literal {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .expect("Could not get system time")
+        .as_millis();
+
+    return Literal::Number(now as f64 / 1000.0);
 }
 
 impl Default for Interpreter {
@@ -14,8 +24,18 @@ impl Default for Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
+        let mut globals = Environment::new();
+        globals.define(
+            "clock".to_string(),
+            Literal::Callable {
+                name: "clock".to_string(),
+                arity: 0,
+                fun: Rc::new(clock_impl),
+            },
+        );
+
         return Self {
-            environment: Rc::new(RefCell::new(Environment::new())),
+            environment: Rc::new(RefCell::new(globals)),
         };
     }
 

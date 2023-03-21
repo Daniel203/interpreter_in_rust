@@ -1,3 +1,4 @@
+use core::fmt::Debug;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -6,13 +7,26 @@ use crate::token;
 use crate::token::Token;
 use crate::token_type::TokenType;
 
-#[derive(Debug, Clone, PartialEq)]
+type CallableFunction = Rc<dyn Fn(&[Literal]) -> Literal>;
+
+#[derive(Clone)]
 pub enum Literal {
     Number(f64),
     String(String),
     True,
     False,
     Nil,
+    Callable {
+        name: String,
+        arity: usize,
+        fun: CallableFunction,
+    },
+}
+
+impl Debug for Literal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        return write!(f, "{}", self.to_string());
+    }
 }
 
 impl ToString for Literal {
@@ -23,7 +37,37 @@ impl ToString for Literal {
             Literal::True => "true".to_string(),
             Literal::False => "false".to_string(),
             Literal::Nil => "nil".to_string(),
+            Literal::Callable {
+                name,
+                arity,
+                fun: _,
+            } => format!("{name}|{arity}"),
         }
+    }
+}
+
+impl PartialEq for Literal {
+    fn eq(&self, other: &Self) -> bool {
+        return match (self, other) {
+            (Literal::Number(x), Literal::Number(y)) => x == y,
+            (
+                Literal::Callable {
+                    name,
+                    arity,
+                    fun: _,
+                },
+                Literal::Callable {
+                    name: name2,
+                    arity: arity2,
+                    fun: _,
+                },
+            ) => name == name2 && arity == arity2,
+            (Literal::String(x), Literal::String(y)) => x == y,
+            (Literal::True, Literal::True) => true,
+            (Literal::False, Literal::False) => true,
+            (Literal::Nil, Literal::Nil) => true,
+            _ => false,
+        };
     }
 }
 
@@ -100,6 +144,13 @@ impl Literal {
             Literal::True => Literal::False,
             Literal::False => Literal::True,
             Literal::Nil => Literal::False,
+            Literal::Callable {
+                name: _,
+                arity: _,
+                fun: _,
+            } => {
+                panic!("Cannot use callable as falsey value.")
+            }
         };
     }
 
@@ -122,6 +173,13 @@ impl Literal {
             Literal::True => Literal::True,
             Literal::False => Literal::False,
             Literal::Nil => Literal::True,
+            Literal::Callable {
+                name: _,
+                arity: _,
+                fun: _,
+            } => {
+                panic!("Cannot use callable as truthy value.")
+            }
         };
     }
 }
@@ -136,6 +194,11 @@ pub enum Expr {
         left: Box<Expr>,
         operator: Token,
         right: Box<Expr>,
+    },
+    Call {
+        callee: Box<Expr>,
+        paren: Token,
+        arguments: Vec<Expr>,
     },
     Grouping {
         expression: Box<Expr>,
@@ -160,6 +223,7 @@ pub enum Expr {
 impl ToString for Expr {
     fn to_string(&self) -> String {
         match self {
+            Expr::Assign { name, value } => format!("({:?} = {})", name, (*value).to_string()),
             Expr::Binary {
                 left,
                 operator,
@@ -172,6 +236,13 @@ impl ToString for Expr {
                     (*right).to_string()
                 );
             }
+            Expr::Call {
+                callee,
+                paren: _,
+                arguments,
+            } => {
+                return format!("({}, {:?})", (*callee).to_string(), arguments);
+            }
             Expr::Grouping { expression } => {
                 return format!("(group {})", (*expression).to_string());
             }
@@ -182,7 +253,6 @@ impl ToString for Expr {
                 return format!("({} {})", &operator.value, (*right).to_string());
             }
             Expr::Variable { name } => format!("(var {})", name.value),
-            Expr::Assign { name, value } => format!("({:?} = {})", name, (*value).to_string()),
             Expr::Logical {
                 left,
                 operator,
@@ -226,6 +296,33 @@ impl Expr {
                     (_, TokenType::Minus) => Err(format!("Minus not implemented for {right:?}")),
                     (any, TokenType::Bang) => Ok(any.is_falsey()),
                     (_, token_type) => Err(format!("{token_type:?} is not a valid unary operator")),
+                };
+            }
+            Expr::Call {
+                callee,
+                paren: _,
+                arguments,
+            } => {
+                let callable = (*callee).evaluate(environment.clone())?;
+                match callable {
+                    Literal::Callable { name, arity, fun } => {
+                        if arguments.len() != arity {
+                            return Err(format!(
+                                "Callable {} expected {} arguments but got {}",
+                                name,
+                                arity,
+                                arguments.len()
+                            ));
+                        }
+
+                        let mut args_val = vec![];
+                        for arg in arguments {
+                            args_val.push(arg.evaluate(environment.clone())?);
+                        }
+
+                        return Ok(fun(&args_val));
+                    }
+                    other => return Err(format!("{} is not callable", other.to_string())),
                 };
             }
             Expr::Logical {
