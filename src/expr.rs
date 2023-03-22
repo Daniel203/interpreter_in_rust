@@ -3,11 +3,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::environment::Environment;
+use crate::interpreter::Interpreter;
+use crate::stmt::Stmt;
 use crate::token;
 use crate::token::Token;
 use crate::token_type::TokenType;
 
-type CallableFunction = Rc<dyn Fn(Rc<RefCell<Environment>>, &[Literal]) -> Literal>;
+type CallableFunction = Rc<dyn Fn(&[Literal]) -> Literal>;
 
 #[derive(Clone)]
 pub enum Literal {
@@ -39,9 +41,9 @@ impl ToString for Literal {
             Literal::Nil => "nil".to_string(),
             Literal::Callable {
                 name,
-                arity,
+                arity: _,
                 fun: _,
-            } => format!("{name}|{arity}"),
+            } => format!("<fn {name}>"),
         }
     }
 }
@@ -186,6 +188,11 @@ impl Literal {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
+    AnonFunction {
+        paren: Token,
+        arguments: Vec<Token>,
+        body: Vec<Box<Stmt>>,
+    },
     Assign {
         name: Token,
         value: Box<Expr>,
@@ -223,7 +230,9 @@ pub enum Expr {
 impl ToString for Expr {
     fn to_string(&self) -> String {
         match self {
-            Expr::Assign { name, value } => format!("({:?} = {})", name, (*value).to_string()),
+            Expr::Assign { name, value } => {
+                return format!("({:?} = {})", name, (*value).to_string())
+            }
             Expr::Binary {
                 left,
                 operator,
@@ -257,12 +266,19 @@ impl ToString for Expr {
                 left,
                 operator,
                 right,
-            } => format!(
-                "({} {} {})",
-                operator.to_string(),
-                left.to_string(),
-                right.to_string()
-            ),
+            } => {
+                return format!(
+                    "({} {} {})",
+                    operator.to_string(),
+                    left.to_string(),
+                    right.to_string()
+                )
+            }
+            Expr::AnonFunction {
+                paren: _,
+                arguments,
+                body: _,
+            } => format!("anon|{}", arguments.len()),
         }
     }
 }
@@ -270,6 +286,57 @@ impl ToString for Expr {
 impl Expr {
     pub fn evaluate(&self, environment: Rc<RefCell<Environment>>) -> Result<Literal, String> {
         return match self {
+            Expr::AnonFunction {
+                paren,
+                arguments,
+                body,
+            } => {
+                let arity = arguments.len();
+                let env = environment;
+                let arguments: Vec<Token> = arguments.iter().map(|t| (*t).clone()).collect();
+                let body: Vec<Box<Stmt>> = body.iter().map(|s| (*s).clone()).collect();
+                let paren = paren.clone();
+
+                let fun_impl = move |args: &[Literal]| {
+                    let mut anon_int = Interpreter::for_anon(env.clone());
+
+                    for (i, arg) in args.iter().enumerate() {
+                        anon_int.environment.borrow_mut().define(
+                            arguments
+                                .get(i)
+                                .expect("Cannot read function param")
+                                .value
+                                .clone(),
+                            (*arg).clone(),
+                        );
+                    }
+
+                    for i in 0..body.len() {
+                        anon_int
+                            .interpret(vec![body
+                                .get(i)
+                                .unwrap_or_else(|| panic!("Element in position {i} not found"))])
+                            .unwrap_or_else(|_| {
+                                panic!(
+                                    "Evaluating failed inside anonymous function at line {}",
+                                    paren.line
+                                )
+                            });
+
+                        if let Some(value) = anon_int.specials.borrow_mut().get("return") {
+                            return value;
+                        }
+                    }
+
+                    return Literal::Nil;
+                };
+
+                return Ok(Literal::Callable {
+                    name: "anon_function".to_string(),
+                    arity,
+                    fun: Rc::new(fun_impl),
+                });
+            }
             Expr::Grouping { expression } => expression.evaluate(environment),
             Expr::Literal { value } => Ok(value.clone()),
             Expr::Variable { name } => match environment.borrow().get(&name.value) {
@@ -320,7 +387,7 @@ impl Expr {
                             args_val.push(arg.evaluate(environment.clone())?);
                         }
 
-                        return Ok(fun(environment, &args_val));
+                        return Ok(fun(&args_val));
                     }
                     other => return Err(format!("{} is not callable", other.to_string())),
                 };

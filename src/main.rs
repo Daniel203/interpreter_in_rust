@@ -68,8 +68,13 @@ fn run_prompt() -> Result<(), String> {
         if buf.len() <= 2 {
             return Ok(());
         } else {
-            run(&buf, &mut interpreter)?;
+            match run(&buf, &mut interpreter) {
+                Ok(_) => (),
+                Err(msg) => println!("{msg}"),
+            };
         }
+
+        println!();
     }
 }
 

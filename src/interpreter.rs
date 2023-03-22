@@ -4,11 +4,11 @@ use crate::{environment::Environment, expr::Literal, stmt::Stmt, token::Token};
 
 #[derive(Debug)]
 pub struct Interpreter {
-    specials: Rc<RefCell<Environment>>,
-    environment: Rc<RefCell<Environment>>,
+    pub specials: Rc<RefCell<Environment>>,
+    pub environment: Rc<RefCell<Environment>>,
 }
 
-fn clock_impl(_env: Rc<RefCell<Environment>>, _args: &[Literal]) -> Literal {
+fn clock_impl(_args: &[Literal]) -> Literal {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .expect("Could not get system time")
@@ -50,6 +50,16 @@ impl Interpreter {
         return Self {
             specials: Rc::new(RefCell::new(Environment::new())),
             environment,
+        };
+    }
+
+    pub fn for_anon(parent: Rc<RefCell<Environment>>) -> Self {
+        let mut env = Environment::new();
+        env.enclosing = Some(parent);
+
+        return Self {
+            specials: Rc::new(RefCell::new(Environment::new())),
+            environment: Rc::new(RefCell::new(env)),
         };
     }
 
@@ -109,8 +119,9 @@ impl Interpreter {
                     let body: Vec<Box<Stmt>> = body.iter().map(|b| (*b).clone()).collect();
                     let name_clone = name.value.clone();
 
-                    let fun_impl = move |parent_env, args: &[Literal]| {
-                        let mut clos_int = Interpreter::for_closure(parent_env);
+                    let parent_env = self.environment.clone();
+                    let fun_impl = move |args: &[Literal]| {
+                        let mut clos_int = Interpreter::for_closure(parent_env.clone());
 
                         for (i, arg) in args.iter().enumerate() {
                             clos_int.environment.borrow_mut().define(
