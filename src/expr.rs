@@ -1,5 +1,6 @@
 use core::fmt::Debug;
 use std::cell::RefCell;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::environment::Environment;
@@ -186,7 +187,7 @@ impl Literal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     AnonFunction {
         paren: Token,
@@ -226,6 +227,22 @@ pub enum Expr {
         name: Token,
     },
 }
+
+impl Hash for Expr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        return std::ptr::hash(self, state);
+    }
+}
+
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        let ptr = std::ptr::addr_of!(self);
+        let ptr2 = std::ptr::addr_of!(other);
+        ptr == ptr2
+    }
+}
+
+impl Eq for Expr {}
 
 impl ToString for Expr {
     fn to_string(&self) -> String {
@@ -284,7 +301,11 @@ impl ToString for Expr {
 }
 
 impl Expr {
-    pub fn evaluate(&self, environment: Rc<RefCell<Environment>>) -> Result<Literal, String> {
+    pub fn evaluate(
+        &self,
+        environment: Rc<RefCell<Environment>>,
+        distance: Option<usize>,
+    ) -> Result<Literal, String> {
         return match self {
             Expr::AnonFunction {
                 paren,
@@ -324,7 +345,7 @@ impl Expr {
                             });
 
                         if let Some(value) = anon_int.specials.borrow_mut().get("return") {
-                            return value;
+                            return value.clone();
                         }
                     }
 
@@ -337,26 +358,27 @@ impl Expr {
                     fun: Rc::new(fun_impl),
                 });
             }
-            Expr::Grouping { expression } => expression.evaluate(environment),
+            Expr::Grouping { expression } => expression.evaluate(environment, distance),
             Expr::Literal { value } => Ok(value.clone()),
-            Expr::Variable { name } => match environment.borrow().get(&name.value) {
+            Expr::Variable { name } => match environment.borrow().get(&name.value, distance) {
                 Some(value) => Ok(value),
                 None => Err(format!("Undefined variable '{}'.", name.value)),
             },
             Expr::Assign { name, value } => {
-                let new_value = (*value).evaluate(environment.clone())?;
-                let assign_succes = environment
-                    .borrow_mut()
-                    .assign(&name.value, new_value.clone());
+                let new_value = (*value).evaluate(environment.clone(), distance)?;
+                let assign_success =
+                    environment
+                        .borrow_mut()
+                        .assign(&name.value, new_value.clone(), distance);
 
-                if assign_succes {
+                if assign_success {
                     return Ok(new_value);
                 } else {
                     return Err(format!("Variable {} was not declared", name.value));
                 }
             }
             Expr::Unary { operator, right } => {
-                let right = (*right).evaluate(environment)?;
+                let right = (*right).evaluate(environment, distance)?;
 
                 return match (right.clone(), operator.token_type) {
                     (Literal::Number(x), TokenType::Minus) => Ok(Literal::Number(-x)),
@@ -370,7 +392,7 @@ impl Expr {
                 paren: _,
                 arguments,
             } => {
-                let callable = (*callee).evaluate(environment.clone())?;
+                let callable = (*callee).evaluate(environment.clone(), distance)?;
                 match callable {
                     Literal::Callable { name, arity, fun } => {
                         if arguments.len() != arity {
@@ -384,7 +406,7 @@ impl Expr {
 
                         let mut args_val = vec![];
                         for arg in arguments {
-                            args_val.push(arg.evaluate(environment.clone())?);
+                            args_val.push(arg.evaluate(environment.clone(), distance)?);
                         }
 
                         return Ok(fun(&args_val));
@@ -398,22 +420,22 @@ impl Expr {
                 right,
             } => match operator.token_type {
                 TokenType::Or => {
-                    let left_value = left.evaluate(environment.clone())?;
+                    let left_value = left.evaluate(environment.clone(), distance)?;
                     let left_true = left_value.is_truthy();
 
                     if left_true == Literal::True {
                         return Ok(left_value);
                     } else {
-                        return right.evaluate(environment);
+                        return right.evaluate(environment, distance);
                     }
                 }
                 TokenType::And => {
-                    let left_true = left.evaluate(environment.clone())?.is_truthy();
+                    let left_true = left.evaluate(environment.clone(), distance)?.is_truthy();
 
                     if left_true == Literal::False {
                         return Ok(Literal::False);
                     } else {
-                        return right.evaluate(environment);
+                        return right.evaluate(environment, distance);
                     }
                 }
                 token_type => Err(format!(
@@ -425,8 +447,8 @@ impl Expr {
                 operator,
                 right,
             } => {
-                let left = (*left).evaluate(environment.clone())?;
-                let right = (*right).evaluate(environment)?;
+                let left = (*left).evaluate(environment.clone(), distance)?;
+                let right = (*right).evaluate(environment, distance)?;
 
                 match (left, operator.token_type, right) {
                     (Literal::Number(l), TokenType::Minus, Literal::Number(r)) => {

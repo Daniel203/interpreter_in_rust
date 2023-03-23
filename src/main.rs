@@ -1,10 +1,14 @@
 use std::{
+    cell::RefCell,
     env, fs,
     io::{self, Write},
     process::exit,
+    rc::Rc,
 };
 
-use programming_language::{interpreter::Interpreter, lexer::Lexer, parser::Parser};
+use programming_language::{
+    interpreter::Interpreter, lexer::Lexer, parser::Parser, resolver::Resolver,
+};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -36,27 +40,30 @@ pub fn error(message: &str, code: i32) {
 }
 
 fn run_file(path: &str) -> Result<(), String> {
-    let mut interpreter = Interpreter::new();
+    let interpreter = Rc::new(RefCell::new(Interpreter::new()));
     return match fs::read_to_string(path) {
-        Ok(data) => run(&data, &mut interpreter),
+        Ok(data) => run(&data, interpreter),
         Err(err) => Err(err.to_string()),
     };
 }
 
-fn run(src: &str, interpreter: &mut Interpreter) -> Result<(), String> {
+fn run(src: &str, interpreter: Rc<RefCell<Interpreter>>) -> Result<(), String> {
     let mut lexer = Lexer::new(src);
     let tokens = lexer.scan_tokens()?;
 
     let mut parser = Parser::new(tokens);
     let stmts = parser.parse()?;
 
-    interpreter.interpret(stmts.iter().collect())?;
+    let mut resolver = Resolver::new(interpreter.clone());
+    resolver.resolve_many(&stmts.iter().collect())?;
+
+    interpreter.borrow_mut().interpret(stmts.iter().collect())?;
 
     return Ok(());
 }
 
 fn run_prompt() -> Result<(), String> {
-    let mut interpreter = Interpreter::new();
+    let interpreter = Rc::new(RefCell::new(Interpreter::new()));
 
     loop {
         print!("> ");
@@ -68,7 +75,7 @@ fn run_prompt() -> Result<(), String> {
         if buf.len() <= 2 {
             return Ok(());
         } else {
-            match run(&buf, &mut interpreter) {
+            match run(&buf, interpreter.clone()) {
                 Ok(_) => (),
                 Err(msg) => println!("{msg}"),
             };
@@ -79,7 +86,7 @@ fn run_prompt() -> Result<(), String> {
 }
 
 pub fn run_string(contents: &str) -> Result<(), String> {
-    let mut interpreter = Interpreter::new();
+    let interpreter = Rc::new(RefCell::new(Interpreter::new()));
 
-    return run(contents, &mut interpreter);
+    return run(contents, interpreter);
 }

@@ -8,6 +8,31 @@ pub struct Environment {
     pub enclosing: Option<Rc<RefCell<Environment>>>,
 }
 
+fn clock_impl(_args: &[Literal]) -> Literal {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .expect("Could not get system time")
+        .as_millis();
+
+    return Literal::Number(now as f64 / 1000.0);
+}
+
+fn get_globals() -> HashMap<String, Literal> {
+    let mut env = HashMap::new();
+    let name = "clock".to_string();
+
+    env.insert(
+        name.clone(),
+        Literal::Callable {
+            name,
+            arity: 0,
+            fun: Rc::new(clock_impl),
+        },
+    );
+
+    return env;
+}
+
 impl Default for Environment {
     fn default() -> Self {
         Self::new()
@@ -17,7 +42,7 @@ impl Default for Environment {
 impl Environment {
     pub fn new() -> Self {
         return Self {
-            values: HashMap::new(),
+            values: get_globals(),
             enclosing: None,
         };
     }
@@ -26,35 +51,42 @@ impl Environment {
         self.values.insert(name, value);
     }
 
-    pub fn define_top_level(&mut self, name: String, value: Literal) {
-        match &self.enclosing {
-            Some(env) => env.borrow_mut().define_top_level(name, value),
-            None => self.define(name, value),
+    pub fn get(&self, name: &str, distance: Option<usize>) -> Option<Literal> {
+        if let Some(distance) = distance {
+            if distance == 0 {
+                return self.values.get(name).cloned();
+            } else {
+                match &self.enclosing {
+                    Some(env) => env.borrow().get(name, Some(distance -1)),
+                    None => panic!("Tried to resolve a variable that was defined deeper than the current environment depth"),
+                }
+            }
+        } else {
+            return match &self.enclosing {
+                Some(env) => env.borrow().get(name, None),
+                None => self.values.get(name).cloned(),
+            };
         }
     }
 
-    pub fn get(&self, name: &str) -> Option<Literal> {
-        let value = self.values.get(name);
-
-        return match (value, &self.enclosing) {
-            (Some(val), _) => Some(val.clone()),
-            (None, Some(env)) => env.borrow().get(name),
-            (None, None) => None,
-        };
-    }
-
-    pub fn assign(&mut self, name: &str, value: Literal) -> bool {
-        let old_value = self.values.get(name);
-
-        match (old_value, &self.enclosing) {
-            (Some(_), _) => {
+    pub fn assign(&mut self, name: &str, value: Literal, distance: Option<usize>) -> bool {
+        if let Some(distance) = distance {
+            if distance == 0 {
                 self.values.insert(name.to_string(), value);
                 return true;
+            } else {
+                match &self.enclosing {
+                    Some(env) => env.borrow_mut().assign(name, value, Some(distance -1)),
+                    None => panic!("Tried to resolve a variable that was defined deeper than the current environment depth"),
+                };
+                return true;
             }
-            (None, Some(env)) => {
-                return env.borrow_mut().assign(name, value);
-            }
-            (None, None) => return false,
-        };
+        } else {
+            match &self.enclosing {
+                Some(env) => env.borrow_mut().assign(name, value, None),
+                None => false,
+            };
+            return true;
+        }
     }
 }

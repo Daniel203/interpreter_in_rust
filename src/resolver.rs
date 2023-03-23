@@ -1,16 +1,16 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{expr::Expr, interpreter::Interpreter, stmt::Stmt, token::Token};
 
 pub struct Resolver {
-    interpreter: Interpreter,
+    interpreter: Rc<RefCell<Interpreter>>,
     scopes: Vec<HashMap<String, bool>>,
 }
 
 impl Resolver {
-    pub fn new(interpreter: Interpreter) -> Self {
+    pub fn new(interpreter: Rc<RefCell<Interpreter>>) -> Self {
         return Self {
-            interpreter: interpreter,
+            interpreter,
             scopes: Vec::new(),
         };
     }
@@ -51,9 +51,9 @@ impl Resolver {
         return Ok(());
     }
 
-    fn resolve_many(&mut self, stmts: &[Box<Stmt>]) -> Result<(), String> {
+    pub fn resolve_many(&mut self, stmts: &Vec<&Stmt>) -> Result<(), String> {
         for stmt in stmts {
-            self.resolve(stmt.as_ref())?;
+            self.resolve(stmt)?;
         }
 
         return Ok(());
@@ -63,7 +63,7 @@ impl Resolver {
         match stmt {
             Stmt::Block { statements } => {
                 self.begin_scope();
-                self.resolve_many(statements)?;
+                self.resolve_many(&statements.iter().map(|b| b.as_ref()).collect())?;
                 self.end_scope();
             }
             _ => panic!("Wrong type"),
@@ -121,7 +121,9 @@ impl Resolver {
                 paren: _,
                 arguments,
                 body,
-            } => self.resolve_function_helper(arguments, body)?,
+            } => {
+                self.resolve_function_helper(arguments, &body.iter().map(|b| b.as_ref()).collect())?
+            }
         };
 
         return Ok(());
@@ -129,33 +131,38 @@ impl Resolver {
 
     fn resolve_expr_var(&mut self, expr: &Expr) -> Result<(), String> {
         if let Expr::Variable { name } = expr {
-            let last_value = self
-                .scopes
-                .last()
-                .expect("Cannot read last element of scopes in resolver")
-                .get(&name.value);
+            if !self.scopes.is_empty() {
+                let last_value = self
+                    .scopes
+                    .last()
+                    .expect("Cannot read last element of scopes in resolver")
+                    .get(&name.value);
 
-            if !self.scopes.is_empty() && last_value == Some(&false) {
-                return Err("Can't read local variable on its own initializer".to_string());
+                if let Some(false) = last_value {
+                    return Err("Can't read local variable on its own initializer".to_string());
+                }
             }
 
-            return self.resolve_local(name);
+            return self.resolve_local(expr, name);
         } else {
             panic!("Wrong type in resolve_expr_var");
         }
     }
 
-    fn resolve_local(&mut self, name: &Token) -> Result<(), String> {
-        let size = self.scopes.len() - 1;
+    fn resolve_local(&mut self, expr: &Expr, name: &Token) -> Result<(), String> {
+        let size = self.scopes.len();
+        if size == 0 {
+            return Ok(());
+        }
 
-        for i in (0..size).rev() {
+        for i in (0..size - 1).rev() {
             let scope = self
                 .scopes
                 .get(i)
                 .unwrap_or_else(|| panic!("Cannot read from scopes"));
 
             if scope.contains_key(&name.value) {
-                //self.interpreter.resolve(expr, size - 1 - i)?;
+                self.interpreter.borrow_mut().resolve(expr, size - 1 - i)?;
                 return Ok(());
             }
         }
@@ -168,7 +175,7 @@ impl Resolver {
             self.declare(name);
             self.define(name);
 
-            self.resolve_function_helper(params, body)?;
+            self.resolve_function_helper(params, &body.iter().map(|b| b.as_ref()).collect())?;
         } else {
             panic!("Wrong type in resolve function");
         }
@@ -179,7 +186,7 @@ impl Resolver {
     fn resolve_function_helper(
         &mut self,
         params: &[Token],
-        body: &[Box<Stmt>],
+        body: &Vec<&Stmt>,
     ) -> Result<(), String> {
         self.begin_scope();
         for param in params {
@@ -244,7 +251,7 @@ impl Resolver {
     fn resolve_expr_assign(&mut self, expr: &Expr) -> Result<(), String> {
         if let Expr::Assign { name, value } = expr {
             self.resolve_expr(value.as_ref())?;
-            self.resolve_local(name)?;
+            self.resolve_local(expr, name)?;
         } else {
             panic!("Wrong type in resolve assign");
         }

@@ -594,12 +594,14 @@ impl Parser {
     }
 
     fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<Token, String> {
-        let token = self.peek();
-
-        if token.is_some() && token.unwrap().token_type == token_type {
-            self.advance()?;
-            let token = self.previous()?;
-            return Ok(token);
+        if let Some(token) = self.peek() {
+            if token.token_type == token_type {
+                self.advance()?;
+                let token = self.previous()?;
+                return Ok(token);
+            } else {
+                return Err(format!("Line {}: {}", token.line, msg));
+            }
         } else {
             return Err(msg.to_string());
         }
