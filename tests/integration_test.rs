@@ -33,7 +33,10 @@ fn execute_tests() {
     }
 
     if errors.len() > 0 {
-        panic!("Errors:\n\n{}", errors.join("\n\n"));
+        panic!(
+            "Errors:\n\n{}",
+            errors.join("\n\n-------------------------------------------\n")
+        );
     }
 }
 

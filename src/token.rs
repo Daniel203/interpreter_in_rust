@@ -10,7 +10,7 @@ pub enum Literal {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Token {
     pub token_type: TokenType,
-    pub value: String,
+    pub name: String,
     pub literal: Option<Literal>,
     pub line: usize,
 }
@@ -19,7 +19,7 @@ impl Token {
     pub fn new(token: TokenType, value: &str, literal: Option<Literal>, line: usize) -> Self {
         return Self {
             token_type: token,
-            value: value.to_string(),
+            name: value.to_string(),
             literal,
             line,
         };
@@ -28,6 +28,6 @@ impl Token {
 
 impl ToString for Token {
     fn to_string(&self) -> String {
-        return format!("{:?} '{}'", self.token_type, self.value);
+        return format!("{:?} '{}'", self.token_type, self.name);
     }
 }

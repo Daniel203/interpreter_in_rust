@@ -83,10 +83,12 @@ impl Environment {
             }
         } else {
             match &self.enclosing {
-                Some(env) => env.borrow_mut().assign(name, value, None),
-                None => false,
+                Some(env) => return env.borrow_mut().assign(name, value, None),
+                None => match self.values.insert(name.to_string(), value) {
+                    Some(_) => return true,
+                    None => return false,
+                },
             };
-            return true;
         }
     }
 }
