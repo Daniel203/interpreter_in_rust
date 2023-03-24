@@ -43,7 +43,7 @@ impl ToString for Stmt {
             Stmt::Var {
                 name,
                 initializer: _,
-            } => format!("(var {})", name.value),
+            } => format!("(var {})", name.name),
             Self::Block { statements } => {
                 return format!(
                     "(block {:?})",

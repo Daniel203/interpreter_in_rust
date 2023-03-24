@@ -14,11 +14,23 @@ enum FunctionKind {
 pub struct Parser {
     tokens: Vec<Token>,
     curr: usize,
+    next_id: usize,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        return Self { tokens, curr: 0 };
+        return Self {
+            tokens,
+            curr: 0,
+            next_id: 0,
+        };
+    }
+
+    fn get_id(&mut self) -> usize {
+        let id = self.next_id;
+        self.next_id += 1;
+
+        return id;
     }
 
     pub fn parse(&mut self) -> Result<Vec<Stmt>, String> {
@@ -104,6 +116,7 @@ impl Parser {
             self.expression()?
         } else {
             Expr::Literal {
+                id: self.get_id(),
                 value: Literal::Nil,
             }
         };
@@ -236,6 +249,7 @@ impl Parser {
         let cond = match condition {
             Some(c) => c,
             None => Expr::Literal {
+                id: self.get_id(),
                 value: Literal::True,
             },
         };
@@ -272,25 +286,74 @@ impl Parser {
         return self.assignment();
     }
 
+    pub fn function_expression(&mut self) -> Result<Expr, String> {
+        let paren = self.consume(
+            TokenType::LeftParen,
+            "Expected '(' after anonymous function",
+        )?;
+
+        let mut arguments = vec![];
+
+        if !self.check(TokenType::RightParen) {
+            loop {
+                let location = self.peek().unwrap().line;
+                if arguments.len() >= 255 {
+                    return Err(format!(
+                        "Line {location}: Can't have more than 255 parameters"
+                    ));
+                }
+
+                let param = self.consume(TokenType::Identifier, "Expected parameter name")?;
+                arguments.push(param);
+
+                if !self.match_token(TokenType::Comma)? {
+                    break;
+                }
+            }
+        }
+
+        self.consume(
+            TokenType::RightParen,
+            "Expected ')' after anonymous function",
+        )?;
+        self.consume(
+            TokenType::LeftBrace,
+            "Expected '{{' after anonymous function",
+        )?;
+
+        let body = match self.block_statement()? {
+            Stmt::Block { statements } => statements,
+            _ => panic!("Block statement parsed something that was not a block"),
+        };
+
+        return Ok(Expr::AnonFunction {
+            id: self.get_id(),
+            paren,
+            arguments,
+            body,
+        });
+    }
+
     pub fn assignment(&mut self) -> Result<Expr, String> {
-        let expr = self.or();
+        let expr = self.or()?;
 
         if self.match_token(TokenType::Equal)? {
             let equals = self.previous()?;
-            let value = self.assignment()?;
+            let value = self.expression()?;
 
-            match expr? {
-                Expr::Variable { name } => {
+            match expr {
+                Expr::Variable { id: _, name } => {
                     return Ok(Expr::Assign {
+                        id: self.get_id(),
                         name,
                         value: Box::from(value),
                     })
                 }
                 _ => return Err(format!("Invalid assignment target: '{equals:?}'.")),
-            }
+            };
         }
 
-        return expr;
+        return Ok(expr);
     }
 
     fn or(&mut self) -> Result<Expr, String> {
@@ -300,6 +363,7 @@ impl Parser {
             let operator = self.previous()?;
             let right = self.and()?;
             expr = Expr::Logical {
+                id: self.get_id(),
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
@@ -316,6 +380,7 @@ impl Parser {
             let operator = self.previous()?;
             let right = self.equality()?;
             expr = Expr::Logical {
+                id: self.get_id(),
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
@@ -390,6 +455,7 @@ impl Parser {
 
         while self.match_tokens(vec![TokenType::BangEqual, TokenType::EqualEqual])? {
             expr = Ok(Expr::Binary {
+                id: self.get_id(),
                 left: Box::from(expr?.clone()),
                 operator: self.previous()?.clone(),
                 right: Box::from(self.comparison()?.clone()),
@@ -409,6 +475,7 @@ impl Parser {
             TokenType::LessEqual,
         ])? {
             expr = Ok(Expr::Binary {
+                id: self.get_id(),
                 left: Box::from(expr?.clone()),
                 operator: self.previous()?.clone(),
                 right: Box::from(self.term()?),
@@ -423,6 +490,7 @@ impl Parser {
 
         while self.match_tokens(vec![TokenType::Minus, TokenType::Plus])? {
             expr = Ok(Expr::Binary {
+                id: self.get_id(),
                 left: Box::from(expr?.clone()),
                 operator: self.previous()?.clone(),
                 right: Box::from(self.factor()?),
@@ -437,6 +505,7 @@ impl Parser {
 
         while self.match_tokens(vec![TokenType::Slash, TokenType::Star])? {
             expr = Ok(Expr::Binary {
+                id: self.get_id(),
                 left: Box::from(expr?.clone()),
                 operator: self.previous()?,
                 right: Box::from(self.unary()?),
@@ -449,6 +518,7 @@ impl Parser {
     fn unary(&mut self) -> Result<Expr, String> {
         if self.match_tokens(vec![TokenType::Bang, TokenType::Minus])? {
             return Ok(Expr::Unary {
+                id: self.get_id(),
                 operator: self.previous()?,
                 right: Box::from(self.unary()?),
             });
@@ -494,6 +564,7 @@ impl Parser {
         let paren = self.consume(TokenType::RightParen, "Expected ')' after arguments.")?;
 
         return Ok(Expr::Call {
+            id: self.get_id(),
             callee: Box::from(callee),
             paren,
             arguments,
@@ -510,6 +581,7 @@ impl Parser {
                     let expr = self.expression()?;
                     self.consume(TokenType::RightParen, "Expected ')'")?;
                     result = Some(Expr::Grouping {
+                        id: self.get_id(),
                         expression: Box::from(expr),
                     });
                 }
@@ -521,14 +593,20 @@ impl Parser {
                     self.advance()?;
                     let token = self.previous()?;
                     result = Some(Expr::Literal {
+                        id: self.get_id(),
                         value: Literal::from_token(token),
                     });
                 }
                 TokenType::Identifier => {
                     self.advance()?;
                     result = Some(Expr::Variable {
+                        id: self.get_id(),
                         name: self.previous()?,
                     });
+                }
+                TokenType::Fun => {
+                    self.advance()?;
+                    result = Some(self.function_expression()?);
                 }
 
                 _ => return Err("Expected expression.".to_string()),
@@ -543,12 +621,14 @@ impl Parser {
     }
 
     fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<Token, String> {
-        let token = self.peek();
-
-        if token.is_some() && token.unwrap().token_type == token_type {
-            self.advance()?;
-            let token = self.previous()?;
-            return Ok(token);
+        if let Some(token) = self.peek() {
+            if token.token_type == token_type {
+                self.advance()?;
+                let token = self.previous()?;
+                return Ok(token);
+            } else {
+                return Err(format!("Line {}: {}", token.line, msg));
+            }
         } else {
             return Err(msg.to_string());
         }

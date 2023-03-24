@@ -1,13 +1,17 @@
 use core::fmt::Debug;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::environment::Environment;
+use crate::interpreter::Interpreter;
+use crate::stmt::Stmt;
 use crate::token;
 use crate::token::Token;
 use crate::token_type::TokenType;
 
-type CallableFunction = Rc<dyn Fn(Rc<RefCell<Environment>>, &[Literal]) -> Literal>;
+type CallableFunction = Rc<dyn Fn(&[Literal]) -> Literal>;
 
 #[derive(Clone)]
 pub enum Literal {
@@ -39,9 +43,9 @@ impl ToString for Literal {
             Literal::Nil => "nil".to_string(),
             Literal::Callable {
                 name,
-                arity,
+                arity: _,
                 fun: _,
-            } => format!("{name}|{arity}"),
+            } => format!("<fn {name}>"),
         }
     }
 }
@@ -184,112 +188,267 @@ impl Literal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Expr {
+    AnonFunction {
+        id: usize,
+        paren: Token,
+        arguments: Vec<Token>,
+        body: Vec<Box<Stmt>>,
+    },
     Assign {
+        id: usize,
         name: Token,
         value: Box<Expr>,
     },
     Binary {
+        id: usize,
         left: Box<Expr>,
         operator: Token,
         right: Box<Expr>,
     },
     Call {
+        id: usize,
         callee: Box<Expr>,
         paren: Token,
         arguments: Vec<Expr>,
     },
     Grouping {
+        id: usize,
         expression: Box<Expr>,
     },
     Literal {
+        id: usize,
         value: Literal,
     },
     Logical {
+        id: usize,
         left: Box<Expr>,
         operator: Token,
         right: Box<Expr>,
     },
     Unary {
+        id: usize,
         operator: Token,
         right: Box<Expr>,
     },
     Variable {
+        id: usize,
         name: Token,
     },
 }
 
+impl Hash for Expr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        return std::ptr::hash(self, state);
+    }
+}
+
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        let ptr = std::ptr::addr_of!(self);
+        let ptr2 = std::ptr::addr_of!(other);
+        ptr == ptr2
+    }
+}
+
+impl Eq for Expr {}
+
 impl ToString for Expr {
     fn to_string(&self) -> String {
         match self {
-            Expr::Assign { name, value } => format!("({:?} = {})", name, (*value).to_string()),
+            Expr::Assign { id: _, name, value } => {
+                return format!("({:?} = {})", name, (*value).to_string())
+            }
             Expr::Binary {
+                id: _,
                 left,
                 operator,
                 right,
             } => {
                 return format!(
                     "({} {} {})",
-                    &operator.value,
+                    &operator.name,
                     (*left).to_string(),
                     (*right).to_string()
                 );
             }
             Expr::Call {
+                id: _,
                 callee,
                 paren: _,
                 arguments,
             } => {
                 return format!("({}, {:?})", (*callee).to_string(), arguments);
             }
-            Expr::Grouping { expression } => {
+            Expr::Grouping { id: _, expression } => {
                 return format!("(group {})", (*expression).to_string());
             }
-            Expr::Literal { value } => {
+            Expr::Literal { id: _, value } => {
                 return value.to_string();
             }
-            Expr::Unary { operator, right } => {
-                return format!("({} {})", &operator.value, (*right).to_string());
+            Expr::Unary {
+                id: _,
+                operator,
+                right,
+            } => {
+                return format!("({} {})", &operator.name, (*right).to_string());
             }
-            Expr::Variable { name } => format!("(var {})", name.value),
+            Expr::Variable { id: _, name } => format!("(var {})", name.name),
             Expr::Logical {
+                id: _,
                 left,
                 operator,
                 right,
-            } => format!(
-                "({} {} {})",
-                operator.to_string(),
-                left.to_string(),
-                right.to_string()
-            ),
+            } => {
+                return format!(
+                    "({} {} {})",
+                    operator.to_string(),
+                    left.to_string(),
+                    right.to_string()
+                )
+            }
+            Expr::AnonFunction {
+                id: _,
+                paren: _,
+                arguments,
+                body: _,
+            } => format!("anon|{}", arguments.len()),
         }
     }
 }
 
 impl Expr {
-    pub fn evaluate(&self, environment: Rc<RefCell<Environment>>) -> Result<Literal, String> {
+    pub fn get_id(&self) -> usize {
         return match self {
-            Expr::Grouping { expression } => expression.evaluate(environment),
-            Expr::Literal { value } => Ok(value.clone()),
-            Expr::Variable { name } => match environment.borrow().get(&name.value) {
-                Some(value) => Ok(value),
-                None => Err(format!("Undefined variable '{}'.", name.value)),
-            },
-            Expr::Assign { name, value } => {
-                let new_value = (*value).evaluate(environment.clone())?;
-                let assign_succes = environment
-                    .borrow_mut()
-                    .assign(&name.value, new_value.clone());
+            Expr::AnonFunction {
+                id,
+                paren: _,
+                arguments: _,
+                body: _,
+            } => *id,
+            Expr::Assign {
+                id,
+                name: _,
+                value: _,
+            } => *id,
+            Expr::Binary {
+                id,
+                left: _,
+                operator: _,
+                right: _,
+            } => *id,
+            Expr::Call {
+                id,
+                callee: _,
+                paren: _,
+                arguments: _,
+            } => *id,
+            Expr::Grouping { id, expression: _ } => *id,
+            Expr::Literal { id, value: _ } => *id,
+            Expr::Logical {
+                id,
+                left: _,
+                operator: _,
+                right: _,
+            } => *id,
+            Expr::Unary {
+                id,
+                operator: _,
+                right: _,
+            } => *id,
+            Expr::Variable { id, name: _ } => *id,
+        };
+    }
 
-                if assign_succes {
-                    return Ok(new_value);
-                } else {
-                    return Err(format!("Variable {} was not declared", name.value));
+    pub fn evaluate(
+        &self,
+        environment: Rc<RefCell<Environment>>,
+        locals: Rc<RefCell<HashMap<usize, usize>>>,
+    ) -> Result<Literal, String> {
+        return match self {
+            Expr::AnonFunction {
+                id: _,
+                paren,
+                arguments,
+                body,
+            } => {
+                let arity = arguments.len();
+                let env = environment;
+                let locals = locals;
+                let arguments: Vec<Token> = arguments.iter().map(|t| (*t).clone()).collect();
+                let body: Vec<Box<Stmt>> = body.iter().map(|s| (*s).clone()).collect();
+                let parent = paren.clone();
+
+                let fun_impl = move |args: &[Literal]| {
+                    let mut anon_int = Interpreter::for_anon(env.clone(), locals.clone());
+
+                    for (i, arg) in args.iter().enumerate() {
+                        anon_int.environment.borrow_mut().define(
+                            arguments
+                                .get(i)
+                                .expect("Cannot read function param")
+                                .name
+                                .clone(),
+                            (*arg).clone(),
+                        );
+                    }
+
+                    for i in 0..body.len() {
+                        anon_int
+                            .interpret(vec![body
+                                .get(i)
+                                .unwrap_or_else(|| panic!("Element in position {i} not found"))])
+                            .unwrap_or_else(|_| {
+                                panic!(
+                                    "Evaluating failed inside anonymous function at line {}",
+                                    parent.line
+                                )
+                            });
+
+                        if let Some(value) = anon_int.specials.borrow_mut().get("return") {
+                            return value.clone();
+                        }
+                    }
+
+                    return Literal::Nil;
+                };
+
+                return Ok(Literal::Callable {
+                    name: "anon_function".to_string(),
+                    arity,
+                    fun: Rc::new(fun_impl),
+                });
+            }
+            Expr::Grouping { id: _, expression } => expression.evaluate(environment, locals),
+            Expr::Literal { id: _, value } => Ok(value.clone()),
+            Expr::Variable { id: _, name } => {
+                let distance = locals.borrow().get(&self.get_id()).cloned();
+                match environment.borrow().get(&name.name, distance) {
+                    Some(value) => Ok(value),
+                    None => Err(format!("Undefined variable '{}'.", name.name)),
                 }
             }
-            Expr::Unary { operator, right } => {
-                let right = (*right).evaluate(environment)?;
+            Expr::Assign { id: _, name, value } => {
+                let distance = locals.borrow().get(&self.get_id()).cloned();
+                let new_value = (*value).evaluate(environment.clone(), locals)?;
+                let assign_success =
+                    environment
+                        .borrow_mut()
+                        .assign(&name.name, new_value.clone(), distance);
+
+                if assign_success {
+                    return Ok(new_value);
+                } else {
+                    return Err(format!("Variable {} was not declared", name.name));
+                }
+            }
+            Expr::Unary {
+                id: _,
+                operator,
+                right,
+            } => {
+                let right = (*right).evaluate(environment, locals)?;
 
                 return match (right.clone(), operator.token_type) {
                     (Literal::Number(x), TokenType::Minus) => Ok(Literal::Number(-x)),
@@ -299,11 +458,12 @@ impl Expr {
                 };
             }
             Expr::Call {
+                id: _,
                 callee,
                 paren: _,
                 arguments,
             } => {
-                let callable = (*callee).evaluate(environment.clone())?;
+                let callable = (*callee).evaluate(environment.clone(), locals.clone())?;
                 match callable {
                     Literal::Callable { name, arity, fun } => {
                         if arguments.len() != arity {
@@ -317,36 +477,39 @@ impl Expr {
 
                         let mut args_val = vec![];
                         for arg in arguments {
-                            args_val.push(arg.evaluate(environment.clone())?);
+                            args_val.push(arg.evaluate(environment.clone(), locals.clone())?);
                         }
 
-                        return Ok(fun(environment, &args_val));
+                        return Ok(fun(&args_val));
                     }
                     other => return Err(format!("{} is not callable", other.to_string())),
                 };
             }
             Expr::Logical {
+                id: _,
                 left,
                 operator,
                 right,
             } => match operator.token_type {
                 TokenType::Or => {
-                    let left_value = left.evaluate(environment.clone())?;
+                    let left_value = left.evaluate(environment.clone(), locals.clone())?;
                     let left_true = left_value.is_truthy();
 
                     if left_true == Literal::True {
                         return Ok(left_value);
                     } else {
-                        return right.evaluate(environment);
+                        return right.evaluate(environment, locals);
                     }
                 }
                 TokenType::And => {
-                    let left_true = left.evaluate(environment.clone())?.is_truthy();
+                    let left_true = left
+                        .evaluate(environment.clone(), locals.clone())?
+                        .is_truthy();
 
                     if left_true == Literal::False {
                         return Ok(Literal::False);
                     } else {
-                        return right.evaluate(environment);
+                        return right.evaluate(environment, locals);
                     }
                 }
                 token_type => Err(format!(
@@ -354,12 +517,13 @@ impl Expr {
                 )),
             },
             Expr::Binary {
+                id: _,
                 left,
                 operator,
                 right,
             } => {
-                let left = (*left).evaluate(environment.clone())?;
-                let right = (*right).evaluate(environment)?;
+                let left = (*left).evaluate(environment.clone(), locals.clone())?;
+                let right = (*right).evaluate(environment, locals)?;
 
                 match (left, operator.token_type, right) {
                     (Literal::Number(l), TokenType::Minus, Literal::Number(r)) => {
