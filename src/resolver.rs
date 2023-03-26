@@ -2,10 +2,17 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{expr::Expr, interpreter::Interpreter, stmt::Stmt, token::Token};
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum FunctionType {
+    None,
+    Function,
+}
+
 #[derive(Debug)]
 pub struct Resolver {
     interpreter: Rc<RefCell<Interpreter>>,
     scopes: Vec<HashMap<String, bool>>,
+    current_function: FunctionType,
 }
 
 impl Resolver {
@@ -13,6 +20,7 @@ impl Resolver {
         return Self {
             interpreter,
             scopes: Vec::new(),
+            current_function: FunctionType::None,
         };
     }
 
@@ -35,14 +43,15 @@ impl Resolver {
                 else_branch: _,
             } => self.resolve_if_stmt(stmt)?,
             Stmt::Print { expression } => self.resolve_expr(expression)?,
-            Stmt::ReturnStmt {
-                keyword: _,
-                value: None,
-            } => (),
-            Stmt::ReturnStmt {
-                keyword: _,
-                value: Some(value),
-            } => self.resolve_expr(value)?,
+            Stmt::ReturnStmt { keyword: _, value } => {
+                if self.current_function == FunctionType::None {
+                    return Err("Return statement not allowed outside of a function".to_string());
+                }
+
+                if let Some(value) = value {
+                    self.resolve_expr(value)?;
+                }
+            }
             Stmt::WhileStmt { condition, body } => {
                 self.resolve_expr(condition)?;
                 self.resolve(body)?;
@@ -75,7 +84,7 @@ impl Resolver {
 
     fn resolve_var(&mut self, stmt: &Stmt) -> Result<(), String> {
         if let Stmt::Var { name, initializer } = stmt {
-            self.declare(name);
+            self.declare(name)?;
             self.resolve_expr(initializer)?;
             self.define(name);
         } else {
@@ -199,10 +208,13 @@ impl Resolver {
 
     fn resolve_function(&mut self, stmt: &Stmt) -> Result<(), String> {
         if let Stmt::Function { name, params, body } = stmt {
-            self.declare(name);
+            let enclosing_function = self.current_function;
+            self.current_function = FunctionType::Function;
+            self.declare(name)?;
             self.define(name);
 
             self.resolve_function_helper(params, &body.iter().map(|b| b.as_ref()).collect())?;
+            self.current_function = enclosing_function;
         } else {
             panic!("Wrong type in resolve function");
         }
@@ -218,7 +230,7 @@ impl Resolver {
         self.begin_scope();
 
         for param in params {
-            self.declare(param);
+            self.declare(param)?;
             self.define(param);
         }
 
@@ -255,15 +267,20 @@ impl Resolver {
         self.scopes.pop().expect("Stack underflow");
     }
 
-    fn declare(&mut self, name: &Token) {
+    fn declare(&mut self, name: &Token) -> Result<(), String> {
         if self.scopes.is_empty() {
-            return;
+            return Ok(());
         }
 
-        self.scopes
-            .last_mut()
-            .unwrap_or_else(|| panic!("Cannot read last element of scopes in resolver"))
-            .insert(name.name.clone(), false);
+        if let Some(last) = self.scopes.last_mut() {
+            if last.contains_key(&name.name) {
+                return Err("Variable with this name already declared".to_string());
+            }
+
+            last.insert(name.name.clone(), false);
+        }
+
+        return Ok(());
     }
 
     fn define(&mut self, name: &Token) {
