@@ -8,7 +8,7 @@ use crate::{
 #[derive(Debug)]
 enum FunctionKind {
     Function,
-    Method
+    Method,
 }
 
 #[derive(Debug)]
@@ -101,7 +101,7 @@ impl Parser {
 
         self.consume(TokenType::RightBrace, "Expected '}}' after class body")?;
 
-        return Ok(Stmt::Class{name, methods});
+        return Ok(Stmt::Class { name, methods });
     }
 
     fn function(&mut self, kind: FunctionKind) -> Result<Stmt, String> {
@@ -367,7 +367,24 @@ impl Parser {
                         value: Box::from(value),
                     })
                 }
-                _ => return Err(format!("Invalid assignment target: '{equals:?}'.")),
+                Expr::Get {
+                    id: _,
+                    object,
+                    name,
+                } => {
+                    return Ok(Expr::Set {
+                        id: self.get_id(),
+                        object,
+                        name,
+                        value: Box::new(value),
+                    })
+                }
+                _ => {
+                    return Err(format!(
+                        "Invalid assignment target: '{}'.",
+                        equals.to_string()
+                    ))
+                }
             };
         }
 
@@ -551,6 +568,14 @@ impl Parser {
         loop {
             if self.match_token(TokenType::LeftParen)? {
                 expr = self.finish_call(expr)?;
+            } else if self.match_token(TokenType::Dot)? {
+                let name =
+                    self.consume(TokenType::Identifier, "Expected proprety name after '.'")?;
+                expr = Expr::Get {
+                    id: self.get_id(),
+                    object: Box::new(expr),
+                    name,
+                };
             } else {
                 break;
             }

@@ -36,7 +36,7 @@ pub enum Stmt {
     Class {
         name: Token,
         methods: Vec<Box<Stmt>>,
-    }
+    },
 }
 
 impl ToString for Stmt {
@@ -75,7 +75,10 @@ impl ToString for Stmt {
                 keyword: _,
                 value: _,
             } => todo!(),
-            Stmt::Class { name:_, methods:_ } => todo!(),
+            Stmt::Class {
+                name: _,
+                methods: _,
+            } => todo!(),
         }
     }
 }

@@ -28,12 +28,26 @@ pub enum Literal {
     Class {
         name: String,
     },
+    Instance {
+        class: Box<Literal>,
+        fields: Rc<RefCell<Vec<(String, Literal)>>>,
+    },
 }
 
 impl Debug for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         return write!(f, "{}", self.to_string());
     }
+}
+
+macro_rules! class_name {
+    ($class:expr) => {{
+        if let Literal::Class { name } = &**$class {
+            name
+        } else {
+            panic!("Unreachable")
+        }
+    }};
 }
 
 impl ToString for Literal {
@@ -50,6 +64,9 @@ impl ToString for Literal {
                 fun: _,
             } => format!("<fn {name}>"),
             Literal::Class { name } => format!("Class '{name}'"),
+            Literal::Instance { class, fields: _ } => {
+                format!("Instance of '{}'", class_name!(class))
+            }
         }
     }
 }
@@ -162,6 +179,10 @@ impl Literal {
             Literal::Class { name: _ } => {
                 panic!("Cannot use class as falsey value")
             }
+            Literal::Instance {
+                class: _,
+                fields: _,
+            } => panic!("Cannot use instance as falsey value"),
         };
     }
 
@@ -194,6 +215,10 @@ impl Literal {
             Literal::Class { name: _ } => {
                 panic!("Cannot use class as truthy value")
             }
+            Literal::Instance {
+                class: _,
+                fields: _,
+            } => panic!("Cannot use instance as truthy value"),
         };
     }
 }
@@ -223,6 +248,11 @@ pub enum Expr {
         paren: Token,
         arguments: Vec<Expr>,
     },
+    Get {
+        id: usize,
+        object: Box<Expr>,
+        name: Token,
+    },
     Grouping {
         id: usize,
         expression: Box<Expr>,
@@ -236,6 +266,12 @@ pub enum Expr {
         left: Box<Expr>,
         operator: Token,
         right: Box<Expr>,
+    },
+    Set {
+        id: usize,
+        object: Box<Expr>,
+        name: Token,
+        value: Box<Expr>,
     },
     Unary {
         id: usize,
@@ -324,6 +360,22 @@ impl ToString for Expr {
                 arguments,
                 body: _,
             } => format!("anon|{}", arguments.len()),
+            Expr::Get {
+                id: _,
+                object,
+                name,
+            } => format!("(get {} {})", object.to_string(), name.name),
+            Expr::Set {
+                id: _,
+                object,
+                name,
+                value,
+            } => format!(
+                "set {} {} {})",
+                object.to_string(),
+                name.to_string(),
+                value.to_string()
+            ),
         }
     }
 }
@@ -354,6 +406,11 @@ impl Expr {
                 paren: _,
                 arguments: _,
             } => *id,
+            Expr::Get {
+                id,
+                object: _,
+                name: _,
+            } => *id,
             Expr::Grouping { id, expression: _ } => *id,
             Expr::Literal { id, value: _ } => *id,
             Expr::Logical {
@@ -368,6 +425,12 @@ impl Expr {
                 right: _,
             } => *id,
             Expr::Variable { id, name: _ } => *id,
+            Expr::Set {
+                id,
+                object: _,
+                name: _,
+                value: _,
+            } => *id,
         };
     }
 
@@ -430,6 +493,64 @@ impl Expr {
                     fun: Rc::new(fun_impl),
                 });
             }
+            Expr::Get {
+                id: _,
+                object,
+                name,
+            } => {
+                let obj_value = object.evaluate(environment, locals)?;
+                if let Literal::Instance { class: _, fields } = obj_value {
+                    for (field_name, value) in fields.borrow().iter() {
+                        if *field_name == name.name {
+                            return Ok(value.clone());
+                        }
+                    }
+
+                    return Err(format!("No field named '{}' on this instance", name.name));
+                } else {
+                    return Err(format!(
+                        "Cannot access property on type '{}'",
+                        obj_value.to_string()
+                    ));
+                }
+            }
+            Expr::Set {
+                id: _,
+                object,
+                name,
+                value,
+            } => {
+                let obj_value = object.evaluate(environment.clone(), locals.clone())?;
+
+                if let Literal::Instance { class: _, fields } = obj_value {
+                    let value = value.evaluate(environment, locals)?;
+
+                    let mut idx = 0;
+                    let mut found = false;
+
+                    for i in 0..fields.borrow().len() {
+                        let field_name = &fields.borrow()[i].0;
+                        if field_name == &name.name {
+                            idx = i;
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if found {
+                        fields.borrow_mut()[idx].1 = value;
+                    } else {
+                        fields.borrow_mut().push((name.name.clone(), value));
+                    }
+
+                    return Ok(Literal::Nil);
+                } else {
+                    return Err(format!(
+                        "Cannot access property on type '{}'",
+                        obj_value.to_string()
+                    ));
+                }
+            }
             Expr::Grouping { id: _, expression } => expression.evaluate(environment, locals),
             Expr::Literal { id: _, value } => Ok(value.clone()),
             Expr::Variable { id: _, name } => {
@@ -491,6 +612,18 @@ impl Expr {
                         }
 
                         return Ok(fun(&args_val));
+                    }
+                    Literal::Class { name: _ } => {
+                        if !arguments.is_empty() {
+                            return Err(
+                                "Can only call the constructor with zero arguments".to_string()
+                            );
+                        }
+
+                        return Ok(Literal::Instance {
+                            class: Box::new(callable.clone()),
+                            fields: Rc::new(RefCell::new(vec![])),
+                        });
                     }
                     other => return Err(format!("{} is not callable", other.to_string())),
                 };

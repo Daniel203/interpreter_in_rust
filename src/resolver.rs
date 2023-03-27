@@ -128,6 +128,13 @@ impl Resolver {
 
                 return Ok(());
             }
+            Expr::Get {
+                id: _,
+                object,
+                name: _,
+            } => {
+                return self.resolve_expr(object);
+            }
             Expr::Grouping { id: _, expression } => return self.resolve_expr(expression),
             Expr::Literal { id: _, value: _ } => return Ok(()),
             Expr::Logical {
@@ -152,6 +159,15 @@ impl Resolver {
             } => {
                 return self
                     .resolve_function_helper(arguments, &body.iter().map(|b| b.as_ref()).collect())
+            }
+            Expr::Set {
+                id: _,
+                object,
+                name: _,
+                value,
+            } => {
+                self.resolve_expr(value)?;
+                return self.resolve_expr(object);
             }
         };
     }
