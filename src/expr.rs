@@ -25,6 +25,9 @@ pub enum Literal {
         arity: usize,
         fun: CallableFunction,
     },
+    Class {
+        name: String,
+    },
 }
 
 impl Debug for Literal {
@@ -46,6 +49,7 @@ impl ToString for Literal {
                 arity: _,
                 fun: _,
             } => format!("<fn {name}>"),
+            Literal::Class { name } => format!("Class '{name}'"),
         }
     }
 }
@@ -153,7 +157,10 @@ impl Literal {
                 arity: _,
                 fun: _,
             } => {
-                panic!("Cannot use callable as falsey value.")
+                panic!("Cannot use callable as falsey value")
+            }
+            Literal::Class { name: _ } => {
+                panic!("Cannot use class as falsey value")
             }
         };
     }
@@ -183,6 +190,9 @@ impl Literal {
                 fun: _,
             } => {
                 panic!("Cannot use callable as truthy value.")
+            }
+            Literal::Class { name: _ } => {
+                panic!("Cannot use class as truthy value")
             }
         };
     }

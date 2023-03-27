@@ -170,6 +170,22 @@ impl Interpreter {
                         .borrow_mut()
                         .insert("return".to_string(), eval_value);
                 }
+                Stmt::Class { name, methods: _ } => {
+                    self.environment
+                        .borrow_mut()
+                        .define(name.name.clone(), Literal::Nil);
+
+                    let class = Literal::Class {
+                        name: name.name.clone(),
+                    };
+                    if !self
+                        .environment
+                        .borrow_mut()
+                        .assign(&name.name, class, None)
+                    {
+                        return Err(format!("Class definition failed for {}", name.name));
+                    }
+                }
             };
         }
 

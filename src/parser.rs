@@ -8,6 +8,7 @@ use crate::{
 #[derive(Debug)]
 enum FunctionKind {
     Function,
+    Method
 }
 
 #[derive(Debug)]
@@ -59,11 +60,48 @@ impl Parser {
     fn declaration(&mut self) -> Result<Stmt, String> {
         if self.match_token(TokenType::Var)? {
             return self.var_declaration();
+        } else if self.match_token(TokenType::Class)? {
+            return self.class_declaration();
         } else if self.match_token(TokenType::Fun)? {
             return self.function(FunctionKind::Function);
         } else {
             return self.statement();
         }
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
+
+        let initializer = if self.match_token(TokenType::Equal)? {
+            self.expression()?
+        } else {
+            Expr::Literal {
+                id: self.get_id(),
+                value: Literal::Nil,
+            }
+        };
+
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration.",
+        )?;
+
+        return Ok(Stmt::Var { name, initializer });
+    }
+
+    fn class_declaration(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expected name after 'class' keyword")?;
+        self.consume(TokenType::LeftBrace, "Expected '{{' before class body")?;
+
+        let mut methods = Vec::new();
+        while !self.check(TokenType::RightBrace) {
+            let method = self.function(FunctionKind::Method)?;
+            methods.push(Box::new(method));
+        }
+
+        self.consume(TokenType::RightBrace, "Expected '}}' after class body")?;
+
+        return Ok(Stmt::Class{name, methods});
     }
 
     fn function(&mut self, kind: FunctionKind) -> Result<Stmt, String> {
@@ -107,26 +145,6 @@ impl Parser {
         };
 
         return Ok(Stmt::Function { name, params, body });
-    }
-
-    fn var_declaration(&mut self) -> Result<Stmt, String> {
-        let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
-
-        let initializer = if self.match_token(TokenType::Equal)? {
-            self.expression()?
-        } else {
-            Expr::Literal {
-                id: self.get_id(),
-                value: Literal::Nil,
-            }
-        };
-
-        self.consume(
-            TokenType::Semicolon,
-            "Expect ';' after variable declaration.",
-        )?;
-
-        return Ok(Stmt::Var { name, initializer });
     }
 
     fn statement(&mut self) -> Result<Stmt, String> {
