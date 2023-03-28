@@ -6,6 +6,7 @@ use crate::{expr::Expr, stmt::Stmt, token::Token};
 pub enum FunctionType {
     None,
     Function,
+    Method,
 }
 
 #[derive(Debug)]
@@ -46,7 +47,7 @@ impl Resolver {
                 name: _,
                 params: _,
                 body: _,
-            } => self.resolve_function(stmt)?,
+            } => self.resolve_function(stmt, FunctionType::Function)?,
             Stmt::Expression { expression } => self.resolve_expr(expression)?,
             Stmt::IfStmt {
                 condition: _,
@@ -67,7 +68,11 @@ impl Resolver {
                 self.resolve_expr(condition)?;
                 self.resolve_internal(body)?;
             }
-            Stmt::Class { name, methods: _ } => {
+            Stmt::Class { name, methods } => {
+                for method in methods {
+                    self.resolve_function(method, FunctionType::Method)?;
+                }
+
                 self.declare(name)?;
                 self.define(name);
             }
@@ -132,7 +137,7 @@ impl Resolver {
                 paren: _,
                 arguments,
             } => {
-                self.resolve_expr_var(callee.as_ref(), callee.get_id())?;
+                self.resolve_expr(callee.as_ref())?;
                 for arg in arguments {
                     self.resolve_expr(arg)?;
                 }
@@ -168,8 +173,11 @@ impl Resolver {
                 arguments,
                 body,
             } => {
-                return self
-                    .resolve_function_helper(arguments, &body.iter().map(|b| b.as_ref()).collect())
+                return self.resolve_function_helper(
+                    arguments,
+                    &body.iter().map(|b| b.as_ref()).collect(),
+                    FunctionType::Function,
+                )
             }
             Expr::Set {
                 id: _,
@@ -235,15 +243,16 @@ impl Resolver {
         return Ok(());
     }
 
-    fn resolve_function(&mut self, stmt: &Stmt) -> Result<(), String> {
+    fn resolve_function(&mut self, stmt: &Stmt, fn_type: FunctionType) -> Result<(), String> {
         if let Stmt::Function { name, params, body } = stmt {
-            let enclosing_function = self.current_function;
-            self.current_function = FunctionType::Function;
             self.declare(name)?;
             self.define(name);
 
-            self.resolve_function_helper(params, &body.iter().map(|b| b.as_ref()).collect())?;
-            self.current_function = enclosing_function;
+            self.resolve_function_helper(
+                params,
+                &body.iter().map(|b| b.as_ref()).collect(),
+                fn_type,
+            )?;
         } else {
             panic!("Wrong type in resolve function");
         }
@@ -255,7 +264,11 @@ impl Resolver {
         &mut self,
         params: &[Token],
         body: &Vec<&Stmt>,
+        resolving_function: FunctionType,
     ) -> Result<(), String> {
+        let enclosing_function = self.current_function;
+        self.current_function = resolving_function;
+
         self.begin_scope();
 
         for param in params {
@@ -265,6 +278,8 @@ impl Resolver {
 
         self.resolve_many(body)?;
         self.end_scope();
+
+        self.current_function = enclosing_function;
 
         return Ok(());
     }

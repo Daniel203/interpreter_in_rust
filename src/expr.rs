@@ -1,5 +1,6 @@
 use core::fmt::Debug;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -26,6 +27,7 @@ pub enum Literal {
     },
     Class {
         name: String,
+        methods: HashMap<String, Literal>,
     },
     Instance {
         class: Box<Literal>,
@@ -41,7 +43,7 @@ impl Debug for Literal {
 
 macro_rules! class_name {
     ($class:expr) => {{
-        if let Literal::Class { name } = &**$class {
+        if let Literal::Class { name, methods: _ } = &**$class {
             name
         } else {
             panic!("Unreachable")
@@ -62,7 +64,7 @@ impl ToString for Literal {
                 arity: _,
                 fun: _,
             } => format!("<fn {name}>"),
-            Literal::Class { name } => format!("Class '{name}'"),
+            Literal::Class { name, methods: _ } => format!("Class '{name}'"),
             Literal::Instance { class, fields: _ } => {
                 format!("Instance of '{}'", class_name!(class))
             }
@@ -175,7 +177,10 @@ impl Literal {
             } => {
                 panic!("Cannot use callable as falsey value")
             }
-            Literal::Class { name: _ } => {
+            Literal::Class {
+                name: _,
+                methods: _,
+            } => {
                 panic!("Cannot use class as falsey value")
             }
             Literal::Instance {
@@ -211,7 +216,10 @@ impl Literal {
             } => {
                 panic!("Cannot use callable as truthy value.")
             }
-            Literal::Class { name: _ } => {
+            Literal::Class {
+                name: _,
+                methods: _,
+            } => {
                 panic!("Cannot use class as truthy value")
             }
             Literal::Instance {
@@ -493,11 +501,19 @@ impl Expr {
                 name,
             } => {
                 let obj_value = object.evaluate(environment)?;
-                if let Literal::Instance { class: _, fields } = obj_value {
+                if let Literal::Instance { class, fields } = obj_value {
                     for (field_name, value) in fields.borrow().iter() {
                         if *field_name == name.name {
                             return Ok(value.clone());
                         }
+                    }
+
+                    if let Literal::Class { name: _, methods } = class.as_ref() {
+                        if let Some(method) = methods.get(&name.name) {
+                            return Ok(method.clone());
+                        }
+                    } else {
+                        panic!("The class field on an instance was not a Class");
                     }
 
                     return Err(format!("No field named '{}' on this instance", name.name));
@@ -601,7 +617,10 @@ impl Expr {
 
                         return Ok(fun(&args_val));
                     }
-                    Literal::Class { name: _ } => {
+                    Literal::Class {
+                        name: _,
+                        methods: _,
+                    } => {
                         if !arguments.is_empty() {
                             return Err(
                                 "Can only call the constructor with zero arguments".to_string()

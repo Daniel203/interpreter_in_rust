@@ -91,52 +91,12 @@ impl Interpreter {
                         flag = condition.evaluate(self.environment.clone())?;
                     }
                 }
-                Stmt::Function { name, params, body } => {
-                    let arity = params.len();
-
-                    let params: Vec<Token> = params.iter().map(|t| (*t).clone()).collect();
-                    let body: Vec<Box<Stmt>> = body.iter().map(|b| (*b).clone()).collect();
-                    let name_clone = name.name.clone();
-
-                    let parent_env = self.environment.clone();
-                    let fun_impl = move |args: &[Literal]| {
-                        let mut clos_int = Interpreter::for_closure(parent_env.clone());
-
-                        for (i, arg) in args.iter().enumerate() {
-                            clos_int.environment.define(
-                                params
-                                    .get(i)
-                                    .expect("Cannot read function param")
-                                    .name
-                                    .clone(),
-                                (*arg).clone(),
-                            );
-                        }
-
-                        for i in 0..body.len() {
-                            clos_int
-                                .interpret(vec![body
-                                    .get(i)
-                                    .unwrap_or_else(|| panic!("Element in position {i} not found"))
-                                    .as_ref()])
-                                .unwrap_or_else(|_| {
-                                    panic!("Evaluating failed inside {name_clone}")
-                                });
-
-                            if let Some(value) = clos_int.specials.get("return") {
-                                return value.clone();
-                            }
-                        }
-
-                        return Literal::Nil;
-                    };
-
-                    let callable = Literal::Callable {
-                        name: name.name.clone(),
-                        arity,
-                        fun: Rc::new(fun_impl),
-                    };
-
+                Stmt::Function {
+                    name,
+                    params: _,
+                    body: _,
+                } => {
+                    let callable = self.make_function(stmt);
                     self.environment.define(name.name.clone(), callable);
                 }
                 Stmt::ReturnStmt { keyword: _, value } => {
@@ -148,11 +108,29 @@ impl Interpreter {
 
                     self.specials.insert("return".to_string(), eval_value);
                 }
-                Stmt::Class { name, methods: _ } => {
+                Stmt::Class { name, methods } => {
                     self.environment.define(name.name.clone(), Literal::Nil);
+
+                    let mut methods_map = HashMap::new();
+                    for method in methods {
+                        if let Stmt::Function {
+                            name,
+                            params: _,
+                            body: _,
+                        } = method.as_ref()
+                        {
+                            let function = self.make_function(method.as_ref());
+                            methods_map.insert(name.name.clone(), function);
+                        } else {
+                            panic!(
+                                "Something that was not a function was in the methods of a class"
+                            );
+                        }
+                    }
 
                     let class = Literal::Class {
                         name: name.name.clone(),
+                        methods: methods_map,
                     };
                     if !self.environment.assign_global(&name.name, class) {
                         return Err(format!("Class definition failed for {}", name.name));
@@ -162,5 +140,54 @@ impl Interpreter {
         }
 
         return Ok(());
+    }
+
+    fn make_function(&self, fn_stmt: &Stmt) -> Literal {
+        if let Stmt::Function { name, params, body } = fn_stmt {
+            let arity = params.len();
+
+            let params: Vec<Token> = params.iter().map(|t| (*t).clone()).collect();
+            let body: Vec<Box<Stmt>> = body.iter().map(|b| (*b).clone()).collect();
+            let name_clone = name.name.clone();
+
+            let parent_env = self.environment.clone();
+            let fun_impl = move |args: &[Literal]| {
+                let mut clos_int = Interpreter::for_closure(parent_env.clone());
+
+                for (i, arg) in args.iter().enumerate() {
+                    clos_int.environment.define(
+                        params
+                            .get(i)
+                            .expect("Cannot read function param")
+                            .name
+                            .clone(),
+                        (*arg).clone(),
+                    );
+                }
+
+                for i in 0..body.len() {
+                    clos_int
+                        .interpret(vec![body
+                            .get(i)
+                            .unwrap_or_else(|| panic!("Element in position {i} not found"))
+                            .as_ref()])
+                        .unwrap_or_else(|_| panic!("Evaluating failed inside {name_clone}"));
+
+                    if let Some(value) = clos_int.specials.get("return") {
+                        return value.clone();
+                    }
+                }
+
+                return Literal::Nil;
+            };
+
+            return Literal::Callable {
+                name: name.name.clone(),
+                arity,
+                fun: Rc::new(fun_impl),
+            };
+        } else {
+            panic!("Tried to make a function from a non-function statement");
+        }
     }
 }
