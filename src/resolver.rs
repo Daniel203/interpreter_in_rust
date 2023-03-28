@@ -1,6 +1,6 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
-use crate::{expr::Expr, interpreter::Interpreter, stmt::Stmt, token::Token};
+use crate::{expr::Expr, stmt::Stmt, token::Token};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FunctionType {
@@ -10,21 +10,32 @@ pub enum FunctionType {
 
 #[derive(Debug)]
 pub struct Resolver {
-    interpreter: Rc<RefCell<Interpreter>>,
     scopes: Vec<HashMap<String, bool>>,
     current_function: FunctionType,
+    locals: HashMap<usize, usize>,
+}
+
+impl Default for Resolver {
+    fn default() -> Self {
+        return Self::new();
+    }
 }
 
 impl Resolver {
-    pub fn new(interpreter: Rc<RefCell<Interpreter>>) -> Self {
+    pub fn new() -> Self {
         return Self {
-            interpreter,
             scopes: Vec::new(),
             current_function: FunctionType::None,
+            locals: HashMap::new(),
         };
     }
 
-    pub fn resolve(&mut self, stmt: &Stmt) -> Result<(), String> {
+    pub fn resolve(mut self, stmts: &Vec<&Stmt>) -> Result<HashMap<usize, usize>, String> {
+        self.resolve_many(stmts)?;
+        return Ok(self.locals);
+    }
+
+    fn resolve_internal(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Block { statements: _ } => self.resolve_block(stmt)?,
             Stmt::Var {
@@ -54,7 +65,7 @@ impl Resolver {
             }
             Stmt::WhileStmt { condition, body } => {
                 self.resolve_expr(condition)?;
-                self.resolve(body)?;
+                self.resolve_internal(body)?;
             }
             Stmt::Class { name, methods: _ } => {
                 self.declare(name)?;
@@ -65,9 +76,9 @@ impl Resolver {
         return Ok(());
     }
 
-    pub fn resolve_many(&mut self, stmts: &Vec<&Stmt>) -> Result<(), String> {
+    fn resolve_many(&mut self, stmts: &Vec<&Stmt>) -> Result<(), String> {
         for stmt in stmts {
-            self.resolve(stmt)?;
+            self.resolve_internal(stmt)?;
         }
 
         return Ok(());
@@ -216,9 +227,7 @@ impl Resolver {
                 .unwrap_or_else(|| panic!("Cannot read from scopes"));
 
             if scope.contains_key(&name.name) {
-                self.interpreter
-                    .borrow_mut()
-                    .resolve(resolve_id, size - 1 - i)?;
+                self.locals.insert(resolve_id, size - 1 - i);
                 return Ok(());
             }
         }
@@ -268,10 +277,10 @@ impl Resolver {
         } = stmt
         {
             self.resolve_expr(condition)?;
-            self.resolve(then_branch)?;
+            self.resolve_internal(then_branch)?;
 
             if let Some(else_branch) = else_branch {
-                self.resolve(else_branch)?;
+                self.resolve_internal(else_branch)?;
             }
         } else {
             panic!("Wrong type in resolve if stmt");

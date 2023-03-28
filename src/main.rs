@@ -1,9 +1,7 @@
 use std::{
-    cell::RefCell,
     env, fs,
     io::{self, Write},
     process::exit,
-    rc::Rc,
 };
 
 use programming_language::{
@@ -40,30 +38,32 @@ pub fn error(message: &str, code: i32) {
 }
 
 fn run_file(path: &str) -> Result<(), String> {
-    let interpreter = Rc::new(RefCell::new(Interpreter::new()));
+    let mut interpreter = Interpreter::new();
+
     return match fs::read_to_string(path) {
-        Ok(data) => run(&data, interpreter),
+        Ok(data) => run(&data, &mut interpreter),
         Err(err) => Err(err.to_string()),
     };
 }
 
-fn run(src: &str, interpreter: Rc<RefCell<Interpreter>>) -> Result<(), String> {
+fn run(src: &str, interpreter: &mut Interpreter) -> Result<(), String> {
     let mut lexer = Lexer::new(src);
     let tokens = lexer.scan_tokens()?;
 
     let mut parser = Parser::new(tokens);
     let stmts = parser.parse()?;
 
-    let mut resolver = Resolver::new(interpreter.clone());
-    resolver.resolve_many(&stmts.iter().collect())?;
+    let resolver = Resolver::new();
+    let locals = resolver.resolve(&stmts.iter().collect())?;
 
-    interpreter.borrow_mut().interpret(stmts.iter().collect())?;
+    interpreter.resolve(locals);
+    interpreter.interpret(stmts.iter().collect())?;
 
     return Ok(());
 }
 
 fn run_prompt() -> Result<(), String> {
-    let interpreter = Rc::new(RefCell::new(Interpreter::new()));
+    let mut interpreter = Interpreter::new();
 
     loop {
         print!("> ");
@@ -75,7 +75,7 @@ fn run_prompt() -> Result<(), String> {
         if buf.len() <= 2 {
             return Ok(());
         } else {
-            match run(&buf, interpreter.clone()) {
+            match run(&buf, &mut interpreter) {
                 Ok(_) => (),
                 Err(msg) => println!("{msg}"),
             };
@@ -86,7 +86,6 @@ fn run_prompt() -> Result<(), String> {
 }
 
 pub fn run_string(contents: &str) -> Result<(), String> {
-    let interpreter = Rc::new(RefCell::new(Interpreter::new()));
-
-    return run(contents, interpreter);
+    let mut interpreter = Interpreter::new();
+    return run(contents, &mut interpreter);
 }

@@ -1,6 +1,5 @@
 use core::fmt::Debug;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -434,11 +433,7 @@ impl Expr {
         };
     }
 
-    pub fn evaluate(
-        &self,
-        environment: Rc<RefCell<Environment>>,
-        locals: Rc<RefCell<HashMap<usize, usize>>>,
-    ) -> Result<Literal, String> {
+    pub fn evaluate(&self, environment: Environment) -> Result<Literal, String> {
         return match self {
             Expr::AnonFunction {
                 id: _,
@@ -448,16 +443,15 @@ impl Expr {
             } => {
                 let arity = arguments.len();
                 let env = environment;
-                let locals = locals;
                 let arguments: Vec<Token> = arguments.iter().map(|t| (*t).clone()).collect();
                 let body: Vec<Box<Stmt>> = body.iter().map(|s| (*s).clone()).collect();
                 let parent = paren.clone();
 
                 let fun_impl = move |args: &[Literal]| {
-                    let mut anon_int = Interpreter::for_anon(env.clone(), locals.clone());
+                    let mut anon_int = Interpreter::for_anon(env.clone());
 
                     for (i, arg) in args.iter().enumerate() {
-                        anon_int.environment.borrow_mut().define(
+                        anon_int.environment.define(
                             arguments
                                 .get(i)
                                 .expect("Cannot read function param")
@@ -479,7 +473,7 @@ impl Expr {
                                 )
                             });
 
-                        if let Some(value) = anon_int.specials.borrow_mut().get("return") {
+                        if let Some(value) = anon_int.specials.get("return") {
                             return value.clone();
                         }
                     }
@@ -498,7 +492,7 @@ impl Expr {
                 object,
                 name,
             } => {
-                let obj_value = object.evaluate(environment, locals)?;
+                let obj_value = object.evaluate(environment)?;
                 if let Literal::Instance { class: _, fields } = obj_value {
                     for (field_name, value) in fields.borrow().iter() {
                         if *field_name == name.name {
@@ -520,10 +514,10 @@ impl Expr {
                 name,
                 value,
             } => {
-                let obj_value = object.evaluate(environment.clone(), locals.clone())?;
+                let obj_value = object.evaluate(environment.clone())?;
 
                 if let Literal::Instance { class: _, fields } = obj_value {
-                    let value = value.evaluate(environment, locals)?;
+                    let value = value.evaluate(environment)?;
 
                     let mut idx = 0;
                     let mut found = false;
@@ -551,22 +545,16 @@ impl Expr {
                     ));
                 }
             }
-            Expr::Grouping { id: _, expression } => expression.evaluate(environment, locals),
+            Expr::Grouping { id: _, expression } => expression.evaluate(environment),
             Expr::Literal { id: _, value } => Ok(value.clone()),
-            Expr::Variable { id: _, name } => {
-                let distance = locals.borrow().get(&self.get_id()).cloned();
-                match environment.borrow().get(&name.name, distance) {
-                    Some(value) => Ok(value),
-                    None => Err(format!("Undefined variable '{}'.", name.name)),
-                }
-            }
+            Expr::Variable { id: _, name } => match environment.get(&name.name, self.get_id()) {
+                Some(value) => Ok(value),
+                None => Err(format!("Undefined variable '{}'.", name.name)),
+            },
             Expr::Assign { id: _, name, value } => {
-                let distance = locals.borrow().get(&self.get_id()).cloned();
-                let new_value = (*value).evaluate(environment.clone(), locals)?;
+                let new_value = (*value).evaluate(environment.clone())?;
                 let assign_success =
-                    environment
-                        .borrow_mut()
-                        .assign(&name.name, new_value.clone(), distance);
+                    environment.assign(&name.name, new_value.clone(), self.get_id());
 
                 if assign_success {
                     return Ok(new_value);
@@ -579,7 +567,7 @@ impl Expr {
                 operator,
                 right,
             } => {
-                let right = (*right).evaluate(environment, locals)?;
+                let right = (*right).evaluate(environment)?;
 
                 return match (right.clone(), operator.token_type) {
                     (Literal::Number(x), TokenType::Minus) => Ok(Literal::Number(-x)),
@@ -594,7 +582,7 @@ impl Expr {
                 paren: _,
                 arguments,
             } => {
-                let callable = (*callee).evaluate(environment.clone(), locals.clone())?;
+                let callable = (*callee).evaluate(environment.clone())?;
                 match callable {
                     Literal::Callable { name, arity, fun } => {
                         if arguments.len() != arity {
@@ -608,7 +596,7 @@ impl Expr {
 
                         let mut args_val = vec![];
                         for arg in arguments {
-                            args_val.push(arg.evaluate(environment.clone(), locals.clone())?);
+                            args_val.push(arg.evaluate(environment.clone())?);
                         }
 
                         return Ok(fun(&args_val));
@@ -635,24 +623,22 @@ impl Expr {
                 right,
             } => match operator.token_type {
                 TokenType::Or => {
-                    let left_value = left.evaluate(environment.clone(), locals.clone())?;
+                    let left_value = left.evaluate(environment.clone())?;
                     let left_true = left_value.is_truthy();
 
                     if left_true == Literal::True {
                         return Ok(left_value);
                     } else {
-                        return right.evaluate(environment, locals);
+                        return right.evaluate(environment);
                     }
                 }
                 TokenType::And => {
-                    let left_true = left
-                        .evaluate(environment.clone(), locals.clone())?
-                        .is_truthy();
+                    let left_true = left.evaluate(environment.clone())?.is_truthy();
 
                     if left_true == Literal::False {
                         return Ok(Literal::False);
                     } else {
-                        return right.evaluate(environment, locals);
+                        return right.evaluate(environment);
                     }
                 }
                 token_type => Err(format!(
@@ -665,8 +651,8 @@ impl Expr {
                 operator,
                 right,
             } => {
-                let left = (*left).evaluate(environment.clone(), locals.clone())?;
-                let right = (*right).evaluate(environment, locals)?;
+                let left = (*left).evaluate(environment.clone())?;
+                let right = (*right).evaluate(environment)?;
 
                 match (left, operator.token_type, right) {
                     (Literal::Number(l), TokenType::Minus, Literal::Number(r)) => {
