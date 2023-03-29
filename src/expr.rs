@@ -544,7 +544,7 @@ impl Expr {
                 arguments,
             } => {
                 let callable = (*callee).evaluate(environment.clone())?;
-                match callable {
+                match callable.clone() {
                     Literal::Callable(CallableImpl::Function(fun)) => {
                         return run_function(fun, arguments, environment);
                     }
@@ -556,20 +556,29 @@ impl Expr {
 
                         return Ok((native_fun.fun)(&evaluated_arguments));
                     }
-                    Literal::Class {
-                        name: _,
-                        methods: _,
-                    } => {
-                        if !arguments.is_empty() {
-                            return Err(
-                                "Can only call the constructor with zero arguments".to_string()
-                            );
+                    Literal::Class { name: _, methods } => {
+                        let instance = Literal::Instance {
+                            class: Box::new(callable),
+                            fields: Rc::new(RefCell::new(vec![])),
+                        };
+
+                        if let Some(constructor) = methods.get("init") {
+                            if constructor.arity != arguments.len() {
+                                return Err(
+                                    "Invalid number of arguments in constructor".to_string()
+                                );
+                            }
+
+                            let new_env = environment.enclose();
+                            new_env.define("this".to_string(), instance.clone());
+
+                            let mut constructor = constructor.clone();
+                            constructor.parent_env = new_env;
+
+                            run_function(constructor, arguments, environment)?;
                         }
 
-                        return Ok(Literal::Instance {
-                            class: Box::new(callable.clone()),
-                            fields: Rc::new(RefCell::new(vec![])),
-                        });
+                        return Ok(instance);
                     }
                     other => return Err(format!("{} is not callable", other.to_string())),
                 };
@@ -688,7 +697,7 @@ impl Expr {
         };
     }
 }
-fn run_function(
+pub fn run_function(
     fun: FunctionImpl,
     arguments: &Vec<Expr>,
     eval_env: Environment,

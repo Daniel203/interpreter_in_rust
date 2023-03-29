@@ -197,6 +197,9 @@ impl Resolver {
                 return self.resolve_expr(object);
             }
             Expr::This { id: _, keyword } => {
+                if self.current_function != FunctionType::Method {
+                    return Err("Cannot use 'this' keyword outside of a class".to_string());
+                }
                 return self.resolve_local(keyword, expr.get_id());
             }
         };

@@ -133,8 +133,9 @@ impl Interpreter {
 
                     let class = Literal::Class {
                         name: name.name.clone(),
-                        methods: methods_map,
+                        methods: methods_map.clone(),
                     };
+
                     if !self.environment.assign_global(&name.name, class) {
                         return Err(format!("Class definition failed for {}", name.name));
                     }
