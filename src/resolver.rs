@@ -69,12 +69,20 @@ impl Resolver {
                 self.resolve_internal(body)?;
             }
             Stmt::Class { name, methods } => {
+                self.declare(name)?;
+                self.define(name);
+
+                self.begin_scope();
+                self.scopes
+                    .last_mut()
+                    .unwrap_or_else(|| panic!("Cannot read last element of scopes in resolver"))
+                    .insert("this".to_string(), true);
+
                 for method in methods {
                     self.resolve_function(method, FunctionType::Method)?;
                 }
 
-                self.declare(name)?;
-                self.define(name);
+                self.end_scope();
             }
         };
 
@@ -187,6 +195,9 @@ impl Resolver {
             } => {
                 self.resolve_expr(value)?;
                 return self.resolve_expr(object);
+            }
+            Expr::This { id: _, keyword } => {
+                return self.resolve_local(keyword, expr.get_id());
             }
         };
     }

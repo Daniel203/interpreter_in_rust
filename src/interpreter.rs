@@ -1,6 +1,11 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
-use crate::{environment::Environment, expr::Literal, stmt::Stmt, token::Token};
+use crate::{
+    environment::Environment,
+    expr::{CallableImpl, FunctionImpl, Literal},
+    stmt::Stmt,
+    token::Token,
+};
 
 #[derive(Debug, Clone)]
 pub struct Interpreter {
@@ -26,21 +31,19 @@ impl Interpreter {
         self.environment.resolve(locals);
     }
 
-    fn for_closure(parent: Environment) -> Self {
-        let environment = parent.enclose();
-
+    pub fn with_env(env: Environment) -> Self {
         return Self {
             specials: HashMap::new(),
-            environment,
+            environment: env,
         };
     }
 
     pub fn for_anon(parent: Environment) -> Self {
-        let environment = parent.enclose();
+        let env = parent.enclose();
 
         return Self {
             specials: HashMap::new(),
-            environment,
+            environment: env,
         };
     }
 
@@ -56,7 +59,6 @@ impl Interpreter {
                 }
                 Stmt::Var { name, initializer } => {
                     let value = initializer.evaluate(self.environment.clone())?;
-
                     self.environment.define(name.name.clone(), value);
                 }
                 Stmt::Block { statements } => {
@@ -97,7 +99,8 @@ impl Interpreter {
                     body: _,
                 } => {
                     let callable = self.make_function(stmt);
-                    self.environment.define(name.name.clone(), callable);
+                    let fun = Literal::Callable(CallableImpl::Function(callable));
+                    self.environment.define(name.name.clone(), fun);
                 }
                 Stmt::ReturnStmt { keyword: _, value } => {
                     let eval_value = if let Some(value) = value {
@@ -142,49 +145,17 @@ impl Interpreter {
         return Ok(());
     }
 
-    fn make_function(&self, fn_stmt: &Stmt) -> Literal {
+    fn make_function(&self, fn_stmt: &Stmt) -> FunctionImpl {
         if let Stmt::Function { name, params, body } = fn_stmt {
-            let arity = params.len();
-
             let params: Vec<Token> = params.iter().map(|t| (*t).clone()).collect();
             let body: Vec<Box<Stmt>> = body.iter().map(|b| (*b).clone()).collect();
-            let name_clone = name.name.clone();
 
-            let parent_env = self.environment.clone();
-            let fun_impl = move |args: &[Literal]| {
-                let mut clos_int = Interpreter::for_closure(parent_env.clone());
-
-                for (i, arg) in args.iter().enumerate() {
-                    clos_int.environment.define(
-                        params
-                            .get(i)
-                            .expect("Cannot read function param")
-                            .name
-                            .clone(),
-                        (*arg).clone(),
-                    );
-                }
-
-                for i in 0..body.len() {
-                    clos_int
-                        .interpret(vec![body
-                            .get(i)
-                            .unwrap_or_else(|| panic!("Element in position {i} not found"))
-                            .as_ref()])
-                        .unwrap_or_else(|_| panic!("Evaluating failed inside {name_clone}"));
-
-                    if let Some(value) = clos_int.specials.get("return") {
-                        return value.clone();
-                    }
-                }
-
-                return Literal::Nil;
-            };
-
-            return Literal::Callable {
+            return FunctionImpl {
                 name: name.name.clone(),
-                arity,
-                fun: Rc::new(fun_impl),
+                arity: params.len(),
+                parent_env: self.environment.clone(),
+                params,
+                body,
             };
         } else {
             panic!("Tried to make a function from a non-function statement");

@@ -1,6 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::expr::Literal;
+use crate::expr::CallableImpl;
+use crate::expr::{Literal, NativeFunctionImpl};
 
 #[derive(Debug, Clone)]
 pub struct Environment {
@@ -22,13 +23,15 @@ fn get_globals() -> HashMap<String, Literal> {
     let mut env = HashMap::new();
     let name = "clock".to_string();
 
+    let callable_impl = NativeFunctionImpl {
+        name: name.clone(),
+        arity: 0,
+        fun: Rc::new(clock_impl),
+    };
+
     env.insert(
-        name.clone(),
-        Literal::Callable {
-            name,
-            arity: 0,
-            fun: Rc::new(clock_impl),
-        },
+        name,
+        Literal::Callable(CallableImpl::NativeFunction(callable_impl)),
     );
 
     return env;
@@ -38,8 +41,8 @@ impl Environment {
     pub fn new(locals: HashMap<usize, usize>) -> Self {
         return Self {
             values: Rc::new(RefCell::new(get_globals())),
-            enclosing: None,
             locals: Rc::new(RefCell::new(locals)),
+            enclosing: None,
         };
     }
 
@@ -66,6 +69,10 @@ impl Environment {
         return self.get_internal(name, distance);
     }
 
+    pub fn get_distance(&self, expr_id: usize) -> Option<usize> {
+        return self.locals.borrow().get(&expr_id).cloned();
+    }
+
     fn get_internal(&self, name: &str, distance: Option<usize>) -> Option<Literal> {
         if let Some(distance) = distance {
             if distance == 0 {
@@ -78,7 +85,7 @@ impl Environment {
             }
         } else {
             return match &self.enclosing {
-                Some(env) => env.get_internal(name, None),
+                Some(env) => env.get_internal(name, distance),
                 None => self.values.borrow().get(name).cloned(),
             };
         }

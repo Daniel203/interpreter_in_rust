@@ -365,7 +365,7 @@ impl Parser {
                         id: self.get_id(),
                         name,
                         value: Box::from(value),
-                    })
+                    });
                 }
                 Expr::Get {
                     id: _,
@@ -377,13 +377,13 @@ impl Parser {
                         object,
                         name,
                         value: Box::new(value),
-                    })
+                    });
                 }
                 _ => {
                     return Err(format!(
                         "Invalid assignment target: '{}'.",
                         equals.to_string()
-                    ))
+                    ));
                 }
             };
         }
@@ -438,11 +438,11 @@ impl Parser {
         }
     }
 
-    fn peek(&self) -> Option<&Token> {
-        return self.tokens.get(self.curr);
+    fn peek(&mut self) -> Option<Token> {
+        return self.tokens.get(self.curr).cloned();
     }
 
-    fn is_at_end(&self) -> bool {
+    fn is_at_end(&mut self) -> bool {
         if let Some(token) = self.peek() {
             return token.token_type == TokenType::EOF;
         }
@@ -450,7 +450,7 @@ impl Parser {
         return true;
     }
 
-    fn check(&self, token_type: TokenType) -> bool {
+    fn check(&mut self, token_type: TokenType) -> bool {
         if self.is_at_end() || self.peek().is_none() {
             return false;
         }
@@ -615,18 +615,16 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Result<Expr, String> {
-        let mut result = None;
-
         if let Some(token) = self.peek() {
-            match token.token_type {
+            let result = match token.token_type {
                 TokenType::LeftParen => {
                     self.advance()?;
                     let expr = self.expression()?;
                     self.consume(TokenType::RightParen, "Expected ')'")?;
-                    result = Some(Expr::Grouping {
+                    Expr::Grouping {
                         id: self.get_id(),
                         expression: Box::from(expr),
-                    });
+                    }
                 }
                 TokenType::False
                 | TokenType::True
@@ -635,29 +633,35 @@ impl Parser {
                 | TokenType::String => {
                     self.advance()?;
                     let token = self.previous()?;
-                    result = Some(Expr::Literal {
+                    Expr::Literal {
                         id: self.get_id(),
                         value: Literal::from_token(token),
-                    });
+                    }
                 }
                 TokenType::Identifier => {
                     self.advance()?;
-                    result = Some(Expr::Variable {
+                    Expr::Variable {
                         id: self.get_id(),
                         name: self.previous()?,
-                    });
+                    }
                 }
                 TokenType::Fun => {
                     self.advance()?;
-                    result = Some(self.function_expression()?);
+                    self.function_expression()?
+                }
+                TokenType::This => {
+                    self.advance()?;
+
+                    Expr::This {
+                        id: self.get_id(),
+                        keyword: token,
+                    }
                 }
 
                 _ => return Err("Expected expression.".to_string()),
-            }
-        }
+            };
 
-        if let Some(res) = result {
-            return Ok(res);
+            return Ok(result);
         } else {
             return Err("Expected expression.".to_string());
         }
