@@ -33,7 +33,7 @@ fn main() {
 }
 
 pub fn error(message: &str, code: i32) {
-    eprintln!("Error: {message}");
+    println!("Error: {message}");
     exit(code);
 }
 

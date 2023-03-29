@@ -2,4 +2,4 @@
 return 123;
 
 // --- Expected
-// 
+// Error: Return statement not allowed outside of a function
