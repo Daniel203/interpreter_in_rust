@@ -69,6 +69,17 @@ impl Environment {
         return self.get_internal(name, distance);
     }
 
+    pub fn get_this_instance(&self, super_id: usize) -> Option<Literal> {
+        let distance = self
+            .locals
+            .borrow()
+            .get(&super_id)
+            .cloned()
+            .expect("No distance found for super");
+
+        return self.get_internal("this", Some(distance - 1));
+    }
+
     pub fn get_distance(&self, expr_id: usize) -> Option<usize> {
         return self.locals.borrow().get(&expr_id).cloned();
     }

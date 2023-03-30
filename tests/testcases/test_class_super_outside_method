@@ -1,0 +1,9 @@
+// --- Test
+class Bagel {
+    will_fail() {
+        super.fail();
+    }
+}
+
+// --- Expected
+// Error: Cannot use 'super' keyword in a class with no superclass

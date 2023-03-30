@@ -111,17 +111,38 @@ impl Interpreter {
 
                     self.specials.insert("return".to_string(), eval_value);
                 }
-                Stmt::Class { name, methods } => {
+                Stmt::Class {
+                    name,
+                    methods,
+                    superclass,
+                } => {
+                    let mut methods_map = HashMap::new();
+
+                    let superclass_value;
+                    if let Some(superclass) = superclass {
+                        let superclass = superclass.evaluate(self.environment.clone())?;
+
+                        if let Literal::Class { .. } = superclass {
+                            superclass_value = Some(Box::new(superclass));
+                        } else {
+                            return Err(format!(
+                                "Superclass must be a class, not '{}'",
+                                superclass.to_type(),
+                            ));
+                        }
+                    } else {
+                        superclass_value = None;
+                    }
+
                     self.environment.define(name.name.clone(), Literal::Nil);
 
-                    let mut methods_map = HashMap::new();
+                    self.environment = self.environment.enclose();
+                    if let Some(sc) = superclass_value.clone() {
+                        self.environment.define("super".to_string(), *sc);
+                    }
+
                     for method in methods {
-                        if let Stmt::Function {
-                            name,
-                            params: _,
-                            body: _,
-                        } = method.as_ref()
-                        {
+                        if let Stmt::Function { name, .. } = method.as_ref() {
                             let function = self.make_function(method.as_ref());
                             methods_map.insert(name.name.clone(), function);
                         } else {
@@ -134,11 +155,14 @@ impl Interpreter {
                     let class = Literal::Class {
                         name: name.name.clone(),
                         methods: methods_map.clone(),
+                        superclass: superclass_value,
                     };
 
                     if !self.environment.assign_global(&name.name, class) {
                         return Err(format!("Class definition failed for {}", name.name));
                     }
+
+                    self.environment = *self.environment.enclosing.clone().unwrap();
                 }
             };
         }

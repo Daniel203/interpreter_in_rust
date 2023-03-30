@@ -36,6 +36,7 @@ pub enum Stmt {
     Class {
         name: Token,
         methods: Vec<Box<Stmt>>,
+        superclass: Option<Expr>,
     },
 }
 
@@ -44,10 +45,7 @@ impl ToString for Stmt {
         match self {
             Stmt::Expression { expression } => expression.to_string(),
             Stmt::Print { expression } => format!("(print {})", expression.to_string()),
-            Stmt::Var {
-                name,
-                initializer: _,
-            } => format!("(var {})", name.name),
+            Stmt::Var { name, .. } => format!("(var {})", name.name),
             Self::Block { statements } => {
                 return format!(
                     "(block {:?})",
@@ -57,28 +55,11 @@ impl ToString for Stmt {
                         .collect::<String>()
                 );
             }
-            Stmt::IfStmt {
-                condition: _,
-                then_branch: _,
-                else_branch: _,
-            } => todo!(),
-            Stmt::WhileStmt {
-                condition: _,
-                body: _,
-            } => todo!(),
-            Stmt::Function {
-                name: _,
-                params: _,
-                body: _,
-            } => todo!(),
-            Stmt::ReturnStmt {
-                keyword: _,
-                value: _,
-            } => todo!(),
-            Stmt::Class {
-                name: _,
-                methods: _,
-            } => todo!(),
+            Stmt::IfStmt { .. } => todo!(),
+            Stmt::WhileStmt { .. } => todo!(),
+            Stmt::Function { .. } => todo!(),
+            Stmt::ReturnStmt { .. } => todo!(),
+            Stmt::Class { .. } => todo!(),
         }
     }
 }

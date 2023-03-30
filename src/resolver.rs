@@ -68,21 +68,50 @@ impl Resolver {
                 self.resolve_expr(condition)?;
                 self.resolve_internal(body)?;
             }
-            Stmt::Class { name, methods } => {
+            Stmt::Class {
+                name,
+                methods,
+                superclass,
+            } => {
+                // resolving superclass
+                if let Some(superclass_expr) = superclass {
+                    if let Expr::Variable {
+                        id: _,
+                        name: superclass_token,
+                    } = superclass_expr
+                    {
+                        if superclass_token.name == name.name {
+                            return Err("A class cannot inherit from itself".to_string());
+                        }
+                    }
+
+                    self.resolve_expr(superclass_expr)?;
+                    self.begin_scope();
+                    self.scopes
+                        .last_mut()
+                        .expect("Cannot get last scope")
+                        .insert("super".to_string(), true);
+                }
+
+                // resolving class
                 self.declare(name)?;
                 self.define(name);
 
                 self.begin_scope();
                 self.scopes
                     .last_mut()
-                    .unwrap_or_else(|| panic!("Cannot read last element of scopes in resolver"))
+                    .expect("Cannot read last element of scopes in resolver")
                     .insert("this".to_string(), true);
 
+                // resolving methods
                 for method in methods {
                     self.resolve_function(method, FunctionType::Method)?;
                 }
 
                 self.end_scope();
+                if superclass.is_some() {
+                    self.end_scope();
+                }
             }
         };
 
@@ -124,26 +153,14 @@ impl Resolver {
 
     fn resolve_expr(&mut self, expr: &Expr) -> Result<(), String> {
         match expr {
-            Expr::Variable { id: _, name: _ } => return self.resolve_expr_var(expr, expr.get_id()),
-            Expr::Assign {
-                id: _,
-                name: _,
-                value: _,
-            } => return self.resolve_expr_assign(expr, expr.get_id()),
-            Expr::Binary {
-                id: _,
-                left,
-                operator: _,
-                right,
-            } => {
+            Expr::Variable { .. } => return self.resolve_expr_var(expr, expr.get_id()),
+            Expr::Assign { .. } => return self.resolve_expr_assign(expr, expr.get_id()),
+            Expr::Binary { left, right, .. } => {
                 self.resolve_expr(left)?;
                 return self.resolve_expr(right);
             }
             Expr::Call {
-                id: _,
-                callee,
-                paren: _,
-                arguments,
+                callee, arguments, ..
             } => {
                 self.resolve_expr(callee.as_ref())?;
                 for arg in arguments {
@@ -152,34 +169,18 @@ impl Resolver {
 
                 return Ok(());
             }
-            Expr::Get {
-                id: _,
-                object,
-                name: _,
-            } => {
+            Expr::Get { object, .. } => {
                 return self.resolve_expr(object);
             }
             Expr::Grouping { id: _, expression } => return self.resolve_expr(expression),
-            Expr::Literal { id: _, value: _ } => return Ok(()),
-            Expr::Logical {
-                id: _,
-                left,
-                operator: _,
-                right,
-            } => {
+            Expr::Literal { .. } => return Ok(()),
+            Expr::Logical { left, right, .. } => {
                 self.resolve_expr(left)?;
                 return self.resolve_expr(right);
             }
-            Expr::Unary {
-                id: _,
-                operator: _,
-                right,
-            } => return self.resolve_expr(right),
+            Expr::Unary { right, .. } => return self.resolve_expr(right),
             Expr::AnonFunction {
-                id: _,
-                paren: _,
-                arguments,
-                body,
+                arguments, body, ..
             } => {
                 return self.resolve_function_helper(
                     arguments,
@@ -187,19 +188,29 @@ impl Resolver {
                     FunctionType::Function,
                 )
             }
-            Expr::Set {
-                id: _,
-                object,
-                name: _,
-                value,
-            } => {
+            Expr::Set { object, value, .. } => {
                 self.resolve_expr(value)?;
                 return self.resolve_expr(object);
             }
-            Expr::This { id: _, keyword } => {
+            Expr::This { keyword, .. } => {
                 if self.current_function != FunctionType::Method {
                     return Err("Cannot use 'this' keyword outside of a class".to_string());
                 }
+                return self.resolve_local(keyword, expr.get_id());
+            }
+            Expr::Super { keyword, .. } => {
+                if self.current_function != FunctionType::Method {
+                    return Err("Cannot use 'super' keyword outside of a class".to_string());
+                }
+
+                if self.scopes.len() < 3
+                    || !self.scopes[self.scopes.len() - 3].contains_key("super")
+                {
+                    return Err(
+                        "Cannot use 'super' keyword in a class with no superclass".to_string()
+                    );
+                }
+
                 return self.resolve_local(keyword, expr.get_id());
             }
         };
@@ -243,10 +254,7 @@ impl Resolver {
         }
 
         for i in (0..=size - 1).rev() {
-            let scope = self
-                .scopes
-                .get(i)
-                .unwrap_or_else(|| panic!("Cannot read from scopes"));
+            let scope = self.scopes.get(i).expect("Cannot read from scopes");
 
             if scope.contains_key(&name.name) {
                 self.locals.insert(resolve_id, size - 1 - i);
@@ -348,7 +356,7 @@ impl Resolver {
 
         self.scopes
             .last_mut()
-            .unwrap_or_else(|| panic!("Cannot read last element of scopes in resolver"))
+            .expect("Cannot read last element of scopes in resolver")
             .insert(name.name.clone(), true);
     }
 

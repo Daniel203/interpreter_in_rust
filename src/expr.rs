@@ -46,6 +46,7 @@ pub enum Literal {
     Class {
         name: String,
         methods: HashMap<String, FunctionImpl>,
+        superclass: Option<Box<Literal>>,
     },
     Instance {
         class: Box<Literal>,
@@ -61,7 +62,7 @@ impl Debug for Literal {
 
 macro_rules! class_name {
     ($class:expr) => {{
-        if let Literal::Class { name, methods: _ } = &**$class {
+        if let Literal::Class { name, .. } = &**$class {
             name
         } else {
             panic!("Unreachable")
@@ -77,7 +78,7 @@ impl ToString for Literal {
             Literal::True => "true".to_string(),
             Literal::False => "false".to_string(),
             Literal::Nil => "nil".to_string(),
-            Literal::Class { name, methods: _ } => format!("Class '{name}'"),
+            Literal::Class { name, .. } => format!("Class '{name}'"),
             Literal::Callable(CallableImpl::Function(FunctionImpl { name, arity, .. })) => {
                 format!("{name}/{arity}")
             }
@@ -143,6 +144,19 @@ fn unwrap_as_string(literal: Option<token::Literal>) -> String {
 }
 
 impl Literal {
+    pub fn to_type(&self) -> &str {
+        return match self {
+            Literal::Number(_) => "Number",
+            Literal::String(_) => "String",
+            Literal::Callable(_) => "Callable",
+            Literal::True => "Boolean",
+            Literal::False => "Boolean",
+            Literal::Nil => "Nil",
+            Literal::Class { .. } => "Class",
+            Literal::Instance { .. } => "Instance",
+        };
+    }
+
     pub fn from_token_literal(literal: token::Literal) -> Self {
         return match literal {
             token::Literal::Number(val) => Self::Number(val),
@@ -281,6 +295,11 @@ pub enum Expr {
         name: Token,
         value: Box<Expr>,
     },
+    Super {
+        id: usize,
+        keyword: Token,
+        method: Token,
+    },
     This {
         id: usize,
         keyword: Token,
@@ -388,7 +407,8 @@ impl ToString for Expr {
                 name.to_string(),
                 value.to_string()
             ),
-            Expr::This { id: _, keyword: _ } => "(this)".to_string(),
+            Expr::This { .. } => "(this)".to_string(),
+            Expr::Super { .. } => "(super)".to_string(),
         }
     }
 }
@@ -408,6 +428,7 @@ impl Expr {
             Expr::Variable { id, .. } => *id,
             Expr::Set { id, .. } => *id,
             Expr::This { id, .. } => *id,
+            Expr::Super { id, .. } => *id,
         };
     }
 
@@ -445,13 +466,30 @@ impl Expr {
                         }
                     }
 
-                    if let Literal::Class { name: _, methods } = class.as_ref() {
+                    if let Literal::Class {
+                        methods,
+                        superclass,
+                        ..
+                    } = class.as_ref()
+                    {
                         if let Some(method) = methods.get(&name.name) {
                             let mut callable_impl = method.clone();
                             let new_env = callable_impl.parent_env.enclose();
                             new_env.define("this".to_string(), obj_value);
                             callable_impl.parent_env = new_env;
                             return Ok(Literal::Callable(CallableImpl::Function(callable_impl)));
+                        } else if let Some(superclass) = superclass {
+                            if let Literal::Class { methods, .. } = superclass.as_ref() {
+                                if let Some(method) = methods.get(&name.name) {
+                                    let mut callable_impl = method.clone();
+                                    let new_env = callable_impl.parent_env.enclose();
+                                    new_env.define("this".to_string(), obj_value);
+                                    callable_impl.parent_env = new_env;
+                                    return Ok(Literal::Callable(CallableImpl::Function(
+                                        callable_impl,
+                                    )));
+                                }
+                            }
                         }
                     } else {
                         panic!("The class field on an instance was not a Class");
@@ -556,7 +594,7 @@ impl Expr {
 
                         return Ok((native_fun.fun)(&evaluated_arguments));
                     }
-                    Literal::Class { name: _, methods } => {
+                    Literal::Class { methods, .. } => {
                         let instance = Literal::Instance {
                             class: Box::new(callable),
                             fields: Rc::new(RefCell::new(vec![])),
@@ -569,11 +607,11 @@ impl Expr {
                                 );
                             }
 
-                            let new_env = environment.enclose();
-                            new_env.define("this".to_string(), instance.clone());
-
                             let mut constructor = constructor.clone();
-                            constructor.parent_env = new_env;
+                            constructor.parent_env = constructor.parent_env.enclose();
+                            constructor
+                                .parent_env
+                                .define("this".to_string(), instance.clone());
 
                             run_function(constructor, arguments, environment)?;
                         }
@@ -692,6 +730,28 @@ impl Expr {
                     (l, token_type, r) => Err(format!(
                         "{token_type:?} is not implemented for operands {l:?} {r:?}",
                     )),
+                }
+            }
+            Expr::Super { method, .. } => {
+                let superclass = environment
+                    .get("super", self.get_id())
+                    .expect("Couldn't lookup 'super'");
+
+                let instance = environment
+                    .get_this_instance(self.get_id())
+                    .expect("Couldn't lookup 'this'");
+
+                if let Literal::Class { methods, .. } = superclass {
+                    if let Some(method_value) = methods.get(&method.name) {
+                        let mut method = method_value.clone();
+                        method.parent_env = method.parent_env.enclose();
+                        method.parent_env.define("this".to_string(), instance);
+                        return Ok(Literal::Callable(CallableImpl::Function(method)));
+                    } else {
+                        return Err(format!("Method {} not found", method.name));
+                    }
+                } else {
+                    panic!("The superclass field of a class should be a class");
                 }
             }
         };

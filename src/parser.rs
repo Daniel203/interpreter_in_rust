@@ -91,6 +91,17 @@ impl Parser {
 
     fn class_declaration(&mut self) -> Result<Stmt, String> {
         let name = self.consume(TokenType::Identifier, "Expected name after 'class' keyword")?;
+
+        let superclass = if self.match_token(TokenType::Colon)? {
+            self.consume(TokenType::Identifier, "Expected superclass name after ':'")?;
+            Some(Expr::Variable {
+                id: self.get_id(),
+                name: self.previous()?,
+            })
+        } else {
+            None
+        };
+
         self.consume(TokenType::LeftBrace, "Expected '{{' before class body")?;
 
         let mut methods = Vec::new();
@@ -101,7 +112,11 @@ impl Parser {
 
         self.consume(TokenType::RightBrace, "Expected '}}' after class body")?;
 
-        return Ok(Stmt::Class { name, methods });
+        return Ok(Stmt::Class {
+            name,
+            methods,
+            superclass,
+        });
     }
 
     fn function(&mut self, kind: FunctionKind) -> Result<Stmt, String> {
@@ -655,6 +670,18 @@ impl Parser {
                     Expr::This {
                         id: self.get_id(),
                         keyword: token,
+                    }
+                }
+                TokenType::Super => {
+                    self.advance()?;
+                    self.consume(TokenType::Dot, "Expected '.' after 'super'")?;
+                    let method =
+                        self.consume(TokenType::Identifier, "Expected superclass method name")?;
+
+                    Expr::Super {
+                        id: self.get_id(),
+                        keyword: token,
+                        method,
                     }
                 }
 
