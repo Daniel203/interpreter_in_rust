@@ -49,14 +49,12 @@ fn run_test(file: DirEntry) -> Result<(), String> {
 
     let mut idx = None;
     for (i, line) in lines.iter().enumerate() {
-        if line.starts_with("// --- Test") {
-            continue;
-        }
         if line.starts_with("// --- Expected") {
             idx = Some(i);
             break;
+        } else if !line.starts_with("// --- Test") {
+            test_code.push(line.clone());
         }
-        test_code.push(line.clone());
     }
 
     let idx = idx.expect(&format!(

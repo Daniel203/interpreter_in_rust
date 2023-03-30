@@ -11,7 +11,29 @@ use crate::token;
 use crate::token::Token;
 use crate::token_type::TokenType;
 
-type CallableFunction = Rc<dyn Fn(&[Literal]) -> Literal>;
+type CallableFunctionType = Rc<dyn Fn(&[Literal]) -> Literal>;
+
+#[derive(Clone)]
+pub struct FunctionImpl {
+    pub name: String,
+    pub arity: usize,
+    pub parent_env: Environment,
+    pub params: Vec<Token>,
+    pub body: Vec<Box<Stmt>>,
+}
+
+#[derive(Clone)]
+pub struct NativeFunctionImpl {
+    pub name: String,
+    pub arity: usize,
+    pub fun: CallableFunctionType,
+}
+
+#[derive(Clone)]
+pub enum CallableImpl {
+    Function(FunctionImpl),
+    NativeFunction(NativeFunctionImpl),
+}
 
 #[derive(Clone)]
 pub enum Literal {
@@ -20,10 +42,15 @@ pub enum Literal {
     True,
     False,
     Nil,
-    Callable {
+    Callable(CallableImpl),
+    Class {
         name: String,
-        arity: usize,
-        fun: CallableFunction,
+        methods: HashMap<String, FunctionImpl>,
+        superclass: Option<Box<Literal>>,
+    },
+    Instance {
+        class: Box<Literal>,
+        fields: Rc<RefCell<Vec<(String, Literal)>>>,
     },
 }
 
@@ -31,6 +58,16 @@ impl Debug for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         return write!(f, "{}", self.to_string());
     }
+}
+
+macro_rules! class_name {
+    ($class:expr) => {{
+        if let Literal::Class { name, .. } = &**$class {
+            name
+        } else {
+            panic!("Unreachable")
+        }
+    }};
 }
 
 impl ToString for Literal {
@@ -41,11 +78,18 @@ impl ToString for Literal {
             Literal::True => "true".to_string(),
             Literal::False => "false".to_string(),
             Literal::Nil => "nil".to_string(),
-            Literal::Callable {
+            Literal::Class { name, .. } => format!("Class '{name}'"),
+            Literal::Callable(CallableImpl::Function(FunctionImpl { name, arity, .. })) => {
+                format!("{name}/{arity}")
+            }
+            Literal::Callable(CallableImpl::NativeFunction(NativeFunctionImpl {
                 name,
-                arity: _,
-                fun: _,
-            } => format!("<fn {name}>"),
+                arity,
+                ..
+            })) => format!("{name}/{arity}"),
+            Literal::Instance { class, fields: _ } => {
+                format!("Instance of '{}'", class_name!(class))
+            }
         }
     }
 }
@@ -55,16 +99,24 @@ impl PartialEq for Literal {
         return match (self, other) {
             (Literal::Number(x), Literal::Number(y)) => x == y,
             (
-                Literal::Callable {
-                    name,
-                    arity,
-                    fun: _,
-                },
-                Literal::Callable {
+                Literal::Callable(CallableImpl::Function(FunctionImpl { name, arity, .. })),
+                Literal::Callable(CallableImpl::Function(FunctionImpl {
                     name: name2,
                     arity: arity2,
-                    fun: _,
-                },
+                    ..
+                })),
+            ) => name == name2 && arity == arity2,
+            (
+                Literal::Callable(CallableImpl::NativeFunction(NativeFunctionImpl {
+                    name,
+                    arity,
+                    ..
+                })),
+                Literal::Callable(CallableImpl::NativeFunction(NativeFunctionImpl {
+                    name: name2,
+                    arity: arity2,
+                    ..
+                })),
             ) => name == name2 && arity == arity2,
             (Literal::String(x), Literal::String(y)) => x == y,
             (Literal::True, Literal::True) => true,
@@ -92,6 +144,19 @@ fn unwrap_as_string(literal: Option<token::Literal>) -> String {
 }
 
 impl Literal {
+    pub fn to_type(&self) -> &str {
+        return match self {
+            Literal::Number(_) => "Number",
+            Literal::String(_) => "String",
+            Literal::Callable(_) => "Callable",
+            Literal::True => "Boolean",
+            Literal::False => "Boolean",
+            Literal::Nil => "Nil",
+            Literal::Class { .. } => "Class",
+            Literal::Instance { .. } => "Instance",
+        };
+    }
+
     pub fn from_token_literal(literal: token::Literal) -> Self {
         return match literal {
             token::Literal::Number(val) => Self::Number(val),
@@ -148,13 +213,9 @@ impl Literal {
             Literal::True => Literal::False,
             Literal::False => Literal::True,
             Literal::Nil => Literal::False,
-            Literal::Callable {
-                name: _,
-                arity: _,
-                fun: _,
-            } => {
-                panic!("Cannot use callable as falsey value.")
-            }
+            Literal::Class { .. } => panic!("Cannot use class as falsey value"),
+            Literal::Instance { .. } => panic!("Cannot use instance as falsey value"),
+            Literal::Callable(_) => panic!("Cannot use callable as falsey value"),
         };
     }
 
@@ -177,13 +238,9 @@ impl Literal {
             Literal::True => Literal::True,
             Literal::False => Literal::False,
             Literal::Nil => Literal::True,
-            Literal::Callable {
-                name: _,
-                arity: _,
-                fun: _,
-            } => {
-                panic!("Cannot use callable as truthy value.")
-            }
+            Literal::Class { .. } => panic!("Cannot use class as truthy value"),
+            Literal::Instance { .. } => panic!("Cannot use instance as truthy value"),
+            Literal::Callable(_) => panic!("Cannot use callable as truthy value."),
         };
     }
 }
@@ -213,6 +270,11 @@ pub enum Expr {
         paren: Token,
         arguments: Vec<Expr>,
     },
+    Get {
+        id: usize,
+        object: Box<Expr>,
+        name: Token,
+    },
     Grouping {
         id: usize,
         expression: Box<Expr>,
@@ -226,6 +288,21 @@ pub enum Expr {
         left: Box<Expr>,
         operator: Token,
         right: Box<Expr>,
+    },
+    Set {
+        id: usize,
+        object: Box<Expr>,
+        name: Token,
+        value: Box<Expr>,
+    },
+    Super {
+        id: usize,
+        keyword: Token,
+        method: Token,
+    },
+    This {
+        id: usize,
+        keyword: Token,
     },
     Unary {
         id: usize,
@@ -314,6 +391,24 @@ impl ToString for Expr {
                 arguments,
                 body: _,
             } => format!("anon|{}", arguments.len()),
+            Expr::Get {
+                id: _,
+                object,
+                name,
+            } => format!("(get {} {})", object.to_string(), name.name),
+            Expr::Set {
+                id: _,
+                object,
+                name,
+                value,
+            } => format!(
+                "set {} {} {})",
+                object.to_string(),
+                name.to_string(),
+                value.to_string()
+            ),
+            Expr::This { .. } => "(this)".to_string(),
+            Expr::Super { .. } => "(super)".to_string(),
         }
     }
 }
@@ -321,121 +416,144 @@ impl ToString for Expr {
 impl Expr {
     pub fn get_id(&self) -> usize {
         return match self {
-            Expr::AnonFunction {
-                id,
-                paren: _,
-                arguments: _,
-                body: _,
-            } => *id,
-            Expr::Assign {
-                id,
-                name: _,
-                value: _,
-            } => *id,
-            Expr::Binary {
-                id,
-                left: _,
-                operator: _,
-                right: _,
-            } => *id,
-            Expr::Call {
-                id,
-                callee: _,
-                paren: _,
-                arguments: _,
-            } => *id,
-            Expr::Grouping { id, expression: _ } => *id,
-            Expr::Literal { id, value: _ } => *id,
-            Expr::Logical {
-                id,
-                left: _,
-                operator: _,
-                right: _,
-            } => *id,
-            Expr::Unary {
-                id,
-                operator: _,
-                right: _,
-            } => *id,
-            Expr::Variable { id, name: _ } => *id,
+            Expr::AnonFunction { id, .. } => *id,
+            Expr::Assign { id, .. } => *id,
+            Expr::Binary { id, .. } => *id,
+            Expr::Call { id, .. } => *id,
+            Expr::Get { id, .. } => *id,
+            Expr::Grouping { id, .. } => *id,
+            Expr::Literal { id, .. } => *id,
+            Expr::Logical { id, .. } => *id,
+            Expr::Unary { id, .. } => *id,
+            Expr::Variable { id, .. } => *id,
+            Expr::Set { id, .. } => *id,
+            Expr::This { id, .. } => *id,
+            Expr::Super { id, .. } => *id,
         };
     }
 
-    pub fn evaluate(
-        &self,
-        environment: Rc<RefCell<Environment>>,
-        locals: Rc<RefCell<HashMap<usize, usize>>>,
-    ) -> Result<Literal, String> {
+    pub fn evaluate(&self, environment: Environment) -> Result<Literal, String> {
         return match self {
             Expr::AnonFunction {
                 id: _,
-                paren,
+                paren: _,
                 arguments,
                 body,
             } => {
-                let arity = arguments.len();
-                let env = environment;
-                let locals = locals;
-                let arguments: Vec<Token> = arguments.iter().map(|t| (*t).clone()).collect();
+                let params: Vec<Token> = arguments.iter().map(|t| (*t).clone()).collect();
                 let body: Vec<Box<Stmt>> = body.iter().map(|s| (*s).clone()).collect();
-                let parent = paren.clone();
 
-                let fun_impl = move |args: &[Literal]| {
-                    let mut anon_int = Interpreter::for_anon(env.clone(), locals.clone());
+                let callable_impl = CallableImpl::Function(FunctionImpl {
+                    name: "anon_function".to_string(),
+                    arity: arguments.len(),
+                    parent_env: environment,
+                    params,
+                    body,
+                });
 
-                    for (i, arg) in args.iter().enumerate() {
-                        anon_int.environment.borrow_mut().define(
-                            arguments
-                                .get(i)
-                                .expect("Cannot read function param")
-                                .name
-                                .clone(),
-                            (*arg).clone(),
-                        );
-                    }
-
-                    for i in 0..body.len() {
-                        anon_int
-                            .interpret(vec![body
-                                .get(i)
-                                .unwrap_or_else(|| panic!("Element in position {i} not found"))])
-                            .unwrap_or_else(|_| {
-                                panic!(
-                                    "Evaluating failed inside anonymous function at line {}",
-                                    parent.line
-                                )
-                            });
-
-                        if let Some(value) = anon_int.specials.borrow_mut().get("return") {
-                            return value.clone();
+                return Ok(Literal::Callable(callable_impl));
+            }
+            Expr::Get {
+                id: _,
+                object,
+                name,
+            } => {
+                let obj_value = object.evaluate(environment)?;
+                if let Literal::Instance { class, fields } = obj_value.clone() {
+                    for (field_name, value) in fields.borrow().iter() {
+                        if *field_name == name.name {
+                            return Ok(value.clone());
                         }
                     }
 
-                    return Literal::Nil;
-                };
+                    if let Literal::Class {
+                        methods,
+                        superclass,
+                        ..
+                    } = class.as_ref()
+                    {
+                        if let Some(method) = methods.get(&name.name) {
+                            let mut callable_impl = method.clone();
+                            let new_env = callable_impl.parent_env.enclose();
+                            new_env.define("this".to_string(), obj_value);
+                            callable_impl.parent_env = new_env;
+                            return Ok(Literal::Callable(CallableImpl::Function(callable_impl)));
+                        } else if let Some(superclass) = superclass {
+                            if let Literal::Class { methods, .. } = superclass.as_ref() {
+                                if let Some(method) = methods.get(&name.name) {
+                                    let mut callable_impl = method.clone();
+                                    let new_env = callable_impl.parent_env.enclose();
+                                    new_env.define("this".to_string(), obj_value);
+                                    callable_impl.parent_env = new_env;
+                                    return Ok(Literal::Callable(CallableImpl::Function(
+                                        callable_impl,
+                                    )));
+                                }
+                            }
+                        }
+                    } else {
+                        panic!("The class field on an instance was not a Class");
+                    }
 
-                return Ok(Literal::Callable {
-                    name: "anon_function".to_string(),
-                    arity,
-                    fun: Rc::new(fun_impl),
-                });
-            }
-            Expr::Grouping { id: _, expression } => expression.evaluate(environment, locals),
-            Expr::Literal { id: _, value } => Ok(value.clone()),
-            Expr::Variable { id: _, name } => {
-                let distance = locals.borrow().get(&self.get_id()).cloned();
-                match environment.borrow().get(&name.name, distance) {
-                    Some(value) => Ok(value),
-                    None => Err(format!("Undefined variable '{}'.", name.name)),
+                    return Err(format!("No field named '{}' on this instance", name.name));
+                } else {
+                    return Err(format!(
+                        "Cannot access property on type '{}'",
+                        obj_value.to_string()
+                    ));
                 }
             }
+            Expr::Set {
+                id: _,
+                object,
+                name,
+                value,
+            } => {
+                let obj_value = object.evaluate(environment.clone())?;
+
+                if let Literal::Instance { class: _, fields } = obj_value {
+                    let value = value.evaluate(environment)?;
+
+                    let mut idx = 0;
+                    let mut found = false;
+
+                    for i in 0..fields.borrow().len() {
+                        let field_name = &fields.borrow()[i].0;
+                        if field_name == &name.name {
+                            idx = i;
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if found {
+                        fields.borrow_mut()[idx].1 = value;
+                    } else {
+                        fields.borrow_mut().push((name.name.clone(), value));
+                    }
+
+                    return Ok(Literal::Nil);
+                } else {
+                    return Err(format!(
+                        "Cannot access property on type '{}'",
+                        obj_value.to_string()
+                    ));
+                }
+            }
+            Expr::Grouping { id: _, expression } => expression.evaluate(environment),
+            Expr::Literal { id: _, value } => Ok(value.clone()),
+            Expr::Variable { id: _, name } => match environment.get(&name.name, self.get_id()) {
+                Some(value) => Ok(value),
+                None => Err(format!(
+                    "Undefined variable '{}' at distance {:?}",
+                    name.name,
+                    environment.get_distance(self.get_id())
+                )),
+            },
             Expr::Assign { id: _, name, value } => {
-                let distance = locals.borrow().get(&self.get_id()).cloned();
-                let new_value = (*value).evaluate(environment.clone(), locals)?;
+                let new_value = (*value).evaluate(environment.clone())?;
                 let assign_success =
-                    environment
-                        .borrow_mut()
-                        .assign(&name.name, new_value.clone(), distance);
+                    environment.assign(&name.name, new_value.clone(), self.get_id());
 
                 if assign_success {
                     return Ok(new_value);
@@ -448,7 +566,7 @@ impl Expr {
                 operator,
                 right,
             } => {
-                let right = (*right).evaluate(environment, locals)?;
+                let right = (*right).evaluate(environment)?;
 
                 return match (right.clone(), operator.token_type) {
                     (Literal::Number(x), TokenType::Minus) => Ok(Literal::Number(-x)),
@@ -463,24 +581,42 @@ impl Expr {
                 paren: _,
                 arguments,
             } => {
-                let callable = (*callee).evaluate(environment.clone(), locals.clone())?;
-                match callable {
-                    Literal::Callable { name, arity, fun } => {
-                        if arguments.len() != arity {
-                            return Err(format!(
-                                "Callable {} expected {} arguments but got {}",
-                                name,
-                                arity,
-                                arguments.len()
-                            ));
-                        }
-
-                        let mut args_val = vec![];
+                let callable = (*callee).evaluate(environment.clone())?;
+                match callable.clone() {
+                    Literal::Callable(CallableImpl::Function(fun)) => {
+                        return run_function(fun, arguments, environment);
+                    }
+                    Literal::Callable(CallableImpl::NativeFunction(native_fun)) => {
+                        let mut evaluated_arguments = vec![];
                         for arg in arguments {
-                            args_val.push(arg.evaluate(environment.clone(), locals.clone())?);
+                            evaluated_arguments.push(arg.evaluate(environment.clone())?);
                         }
 
-                        return Ok(fun(&args_val));
+                        return Ok((native_fun.fun)(&evaluated_arguments));
+                    }
+                    Literal::Class { methods, .. } => {
+                        let instance = Literal::Instance {
+                            class: Box::new(callable),
+                            fields: Rc::new(RefCell::new(vec![])),
+                        };
+
+                        if let Some(constructor) = methods.get("init") {
+                            if constructor.arity != arguments.len() {
+                                return Err(
+                                    "Invalid number of arguments in constructor".to_string()
+                                );
+                            }
+
+                            let mut constructor = constructor.clone();
+                            constructor.parent_env = constructor.parent_env.enclose();
+                            constructor
+                                .parent_env
+                                .define("this".to_string(), instance.clone());
+
+                            run_function(constructor, arguments, environment)?;
+                        }
+
+                        return Ok(instance);
                     }
                     other => return Err(format!("{} is not callable", other.to_string())),
                 };
@@ -492,38 +628,42 @@ impl Expr {
                 right,
             } => match operator.token_type {
                 TokenType::Or => {
-                    let left_value = left.evaluate(environment.clone(), locals.clone())?;
+                    let left_value = left.evaluate(environment.clone())?;
                     let left_true = left_value.is_truthy();
 
                     if left_true == Literal::True {
                         return Ok(left_value);
                     } else {
-                        return right.evaluate(environment, locals);
+                        return right.evaluate(environment);
                     }
                 }
                 TokenType::And => {
-                    let left_true = left
-                        .evaluate(environment.clone(), locals.clone())?
-                        .is_truthy();
+                    let left_true = left.evaluate(environment.clone())?.is_truthy();
 
                     if left_true == Literal::False {
                         return Ok(Literal::False);
                     } else {
-                        return right.evaluate(environment, locals);
+                        return right.evaluate(environment);
                     }
                 }
                 token_type => Err(format!(
                     "Invalid token in logical expression: {token_type:?}"
                 )),
             },
+            Expr::This { id: _, keyword: _ } => {
+                let this = environment
+                    .get("this", self.get_id())
+                    .expect("Couldn't look up 'this'");
+                return Ok(this);
+            }
             Expr::Binary {
                 id: _,
                 left,
                 operator,
                 right,
             } => {
-                let left = (*left).evaluate(environment.clone(), locals.clone())?;
-                let right = (*right).evaluate(environment, locals)?;
+                let left = (*left).evaluate(environment.clone())?;
+                let right = (*right).evaluate(environment)?;
 
                 match (left, operator.token_type, right) {
                     (Literal::Number(l), TokenType::Minus, Literal::Number(r)) => {
@@ -592,6 +732,64 @@ impl Expr {
                     )),
                 }
             }
+            Expr::Super { method, .. } => {
+                let superclass = environment
+                    .get("super", self.get_id())
+                    .expect("Couldn't lookup 'super'");
+
+                let instance = environment
+                    .get_this_instance(self.get_id())
+                    .expect("Couldn't lookup 'this'");
+
+                if let Literal::Class { methods, .. } = superclass {
+                    if let Some(method_value) = methods.get(&method.name) {
+                        let mut method = method_value.clone();
+                        method.parent_env = method.parent_env.enclose();
+                        method.parent_env.define("this".to_string(), instance);
+                        return Ok(Literal::Callable(CallableImpl::Function(method)));
+                    } else {
+                        return Err(format!("Method {} not found", method.name));
+                    }
+                } else {
+                    panic!("The superclass field of a class should be a class");
+                }
+            }
         };
     }
+}
+pub fn run_function(
+    fun: FunctionImpl,
+    arguments: &Vec<Expr>,
+    eval_env: Environment,
+) -> Result<Literal, String> {
+    if arguments.len() != fun.arity {
+        return Err(format!(
+            "Callable {} expected {} arguments but got {}",
+            fun.name,
+            fun.arity,
+            arguments.len()
+        ));
+    }
+
+    let mut args_val = vec![];
+    for arg in arguments {
+        args_val.push(arg.evaluate(eval_env.clone())?);
+    }
+
+    let fun_env = fun.parent_env.enclose();
+
+    for (i, val) in args_val.iter().enumerate() {
+        fun_env.define(fun.params.get(i).unwrap().name.clone(), val.clone());
+    }
+
+    let mut int = Interpreter::with_env(fun_env);
+    for i in 0..fun.body.len() {
+        int.interpret(vec![fun.body.get(i).unwrap()])?;
+
+        if let Some(value) = int.specials.get("return") {
+            return Ok(value.clone());
+        }
+    }
+
+    return Ok(Literal::Nil);
 }

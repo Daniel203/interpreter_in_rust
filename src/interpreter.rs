@@ -1,54 +1,49 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
-use crate::{environment::Environment, expr::Literal, stmt::Stmt, token::Token};
+use crate::{
+    environment::Environment,
+    expr::{CallableImpl, FunctionImpl, Literal},
+    stmt::Stmt,
+    token::Token,
+};
 
 #[derive(Debug, Clone)]
 pub struct Interpreter {
-    pub specials: Rc<RefCell<HashMap<String, Literal>>>,
-    pub environment: Rc<RefCell<Environment>>,
-    pub locals: Rc<RefCell<HashMap<usize, usize>>>,
+    pub specials: HashMap<String, Literal>,
+    pub environment: Environment,
 }
 
 impl Default for Interpreter {
     fn default() -> Self {
-        Self::new()
+        return Self::new();
     }
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         return Self {
-            specials: Rc::new(RefCell::new(HashMap::new())),
-            environment: Rc::new(RefCell::new(Environment::new())),
-            locals: Rc::new(RefCell::new(HashMap::new())),
+            specials: HashMap::new(),
+            environment: Environment::new(HashMap::new()),
         };
     }
 
-    fn for_closure(
-        parent: Rc<RefCell<Environment>>,
-        locals: Rc<RefCell<HashMap<usize, usize>>>,
-    ) -> Self {
-        let environment = Rc::new(RefCell::new(Environment::new()));
-        environment.borrow_mut().enclosing = Some(parent);
+    pub fn resolve(&mut self, locals: HashMap<usize, usize>) {
+        self.environment.resolve(locals);
+    }
 
+    pub fn with_env(env: Environment) -> Self {
         return Self {
-            specials: Rc::new(RefCell::new(HashMap::new())),
-            environment,
-            locals,
+            specials: HashMap::new(),
+            environment: env,
         };
     }
 
-    pub fn for_anon(
-        parent: Rc<RefCell<Environment>>,
-        locals: Rc<RefCell<HashMap<usize, usize>>>,
-    ) -> Self {
-        let mut env = Environment::new();
-        env.enclosing = Some(parent);
+    pub fn for_anon(parent: Environment) -> Self {
+        let env = parent.enclose();
 
         return Self {
-            specials: Rc::new(RefCell::new(HashMap::new())),
-            environment: Rc::new(RefCell::new(env)),
-            locals,
+            specials: HashMap::new(),
+            environment: env,
         };
     }
 
@@ -56,28 +51,21 @@ impl Interpreter {
         for stmt in stmts {
             match stmt {
                 Stmt::Expression { expression } => {
-                    expression.evaluate(self.environment.clone(), self.locals.clone())?;
+                    expression.evaluate(self.environment.clone())?;
                 }
                 Stmt::Print { expression } => {
-                    let value =
-                        expression.evaluate(self.environment.clone(), self.locals.clone())?;
+                    let value = expression.evaluate(self.environment.clone())?;
                     println!("{}", value.to_string());
                 }
                 Stmt::Var { name, initializer } => {
-                    let value =
-                        initializer.evaluate(self.environment.clone(), self.locals.clone())?;
-
-                    self.environment
-                        .borrow_mut()
-                        .define(name.name.clone(), value);
+                    let value = initializer.evaluate(self.environment.clone())?;
+                    self.environment.define(name.name.clone(), value);
                 }
                 Stmt::Block { statements } => {
-                    let mut new_environment = Environment::new();
-                    new_environment.enclosing = Some(self.environment.clone());
-
+                    let new_environment = self.environment.enclose();
                     let old_environment = self.environment.clone();
 
-                    self.environment = Rc::new(RefCell::new(new_environment));
+                    self.environment = new_environment;
                     let block_result =
                         self.interpret((*statements).iter().map(|b| b.as_ref()).collect());
                     self.environment = old_environment;
@@ -89,8 +77,7 @@ impl Interpreter {
                     then_branch,
                     else_branch,
                 } => {
-                    let truth_value =
-                        condition.evaluate(self.environment.clone(), self.locals.clone())?;
+                    let truth_value = condition.evaluate(self.environment.clone())?;
 
                     if truth_value.is_truthy() == Literal::True {
                         self.interpret(vec![then_branch.as_ref()])?;
@@ -99,76 +86,83 @@ impl Interpreter {
                     }
                 }
                 Stmt::WhileStmt { condition, body } => {
-                    let mut flag =
-                        condition.evaluate(self.environment.clone(), self.locals.clone())?;
+                    let mut flag = condition.evaluate(self.environment.clone())?;
 
                     while flag.is_truthy() == Literal::True {
                         self.interpret(vec![body.as_ref()])?;
-                        flag = condition.evaluate(self.environment.clone(), self.locals.clone())?;
+                        flag = condition.evaluate(self.environment.clone())?;
                     }
                 }
-                Stmt::Function { name, params, body } => {
-                    let arity = params.len();
-
-                    let params: Vec<Token> = params.iter().map(|t| (*t).clone()).collect();
-                    let body: Vec<Box<Stmt>> = body.iter().map(|b| (*b).clone()).collect();
-                    let name_clone = name.name.clone();
-
-                    let parent_env = self.environment.clone();
-                    let parent_locals = self.locals.clone();
-                    let fun_impl = move |args: &[Literal]| {
-                        let mut clos_int =
-                            Interpreter::for_closure(parent_env.clone(), parent_locals.clone());
-
-                        for (i, arg) in args.iter().enumerate() {
-                            clos_int.environment.borrow_mut().define(
-                                params
-                                    .get(i)
-                                    .expect("Cannot read function param")
-                                    .name
-                                    .clone(),
-                                (*arg).clone(),
-                            );
-                        }
-
-                        for i in 0..body.len() {
-                            clos_int
-                                .interpret(vec![body
-                                    .get(i)
-                                    .unwrap_or_else(|| panic!("Element in position {i} not found"))
-                                    .as_ref()])
-                                .unwrap_or_else(|_| {
-                                    panic!("Evaluating failed inside {name_clone}")
-                                });
-
-                            if let Some(value) = clos_int.specials.borrow().get("return") {
-                                return value.clone();
-                            }
-                        }
-
-                        return Literal::Nil;
-                    };
-
-                    let callable = Literal::Callable {
-                        name: name.name.clone(),
-                        arity,
-                        fun: Rc::new(fun_impl),
-                    };
-
-                    self.environment
-                        .borrow_mut()
-                        .define(name.name.clone(), callable);
+                Stmt::Function {
+                    name,
+                    params: _,
+                    body: _,
+                } => {
+                    let callable = self.make_function(stmt);
+                    let fun = Literal::Callable(CallableImpl::Function(callable));
+                    self.environment.define(name.name.clone(), fun);
                 }
                 Stmt::ReturnStmt { keyword: _, value } => {
                     let eval_value = if let Some(value) = value {
-                        value.evaluate(self.environment.clone(), self.locals.clone())?
+                        value.evaluate(self.environment.clone())?
                     } else {
                         Literal::Nil
                     };
 
-                    self.specials
-                        .borrow_mut()
-                        .insert("return".to_string(), eval_value);
+                    self.specials.insert("return".to_string(), eval_value);
+                }
+                Stmt::Class {
+                    name,
+                    methods,
+                    superclass,
+                } => {
+                    let mut methods_map = HashMap::new();
+
+                    let superclass_value;
+                    if let Some(superclass) = superclass {
+                        let superclass = superclass.evaluate(self.environment.clone())?;
+
+                        if let Literal::Class { .. } = superclass {
+                            superclass_value = Some(Box::new(superclass));
+                        } else {
+                            return Err(format!(
+                                "Superclass must be a class, not '{}'",
+                                superclass.to_type(),
+                            ));
+                        }
+                    } else {
+                        superclass_value = None;
+                    }
+
+                    self.environment.define(name.name.clone(), Literal::Nil);
+
+                    self.environment = self.environment.enclose();
+                    if let Some(sc) = superclass_value.clone() {
+                        self.environment.define("super".to_string(), *sc);
+                    }
+
+                    for method in methods {
+                        if let Stmt::Function { name, .. } = method.as_ref() {
+                            let function = self.make_function(method.as_ref());
+                            methods_map.insert(name.name.clone(), function);
+                        } else {
+                            panic!(
+                                "Something that was not a function was in the methods of a class"
+                            );
+                        }
+                    }
+
+                    let class = Literal::Class {
+                        name: name.name.clone(),
+                        methods: methods_map.clone(),
+                        superclass: superclass_value,
+                    };
+
+                    if !self.environment.assign_global(&name.name, class) {
+                        return Err(format!("Class definition failed for {}", name.name));
+                    }
+
+                    self.environment = *self.environment.enclosing.clone().unwrap();
                 }
             };
         }
@@ -176,8 +170,20 @@ impl Interpreter {
         return Ok(());
     }
 
-    pub fn resolve(&mut self, id: usize, steps: usize) -> Result<(), String> {
-        self.locals.borrow_mut().insert(id, steps);
-        return Ok(());
+    fn make_function(&self, fn_stmt: &Stmt) -> FunctionImpl {
+        if let Stmt::Function { name, params, body } = fn_stmt {
+            let params: Vec<Token> = params.iter().map(|t| (*t).clone()).collect();
+            let body: Vec<Box<Stmt>> = body.iter().map(|b| (*b).clone()).collect();
+
+            return FunctionImpl {
+                name: name.name.clone(),
+                arity: params.len(),
+                parent_env: self.environment.clone(),
+                params,
+                body,
+            };
+        } else {
+            panic!("Tried to make a function from a non-function statement");
+        }
     }
 }

@@ -8,6 +8,7 @@ use crate::{
 #[derive(Debug)]
 enum FunctionKind {
     Function,
+    Method,
 }
 
 #[derive(Debug)]
@@ -59,11 +60,63 @@ impl Parser {
     fn declaration(&mut self) -> Result<Stmt, String> {
         if self.match_token(TokenType::Var)? {
             return self.var_declaration();
+        } else if self.match_token(TokenType::Class)? {
+            return self.class_declaration();
         } else if self.match_token(TokenType::Fun)? {
             return self.function(FunctionKind::Function);
         } else {
             return self.statement();
         }
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
+
+        let initializer = if self.match_token(TokenType::Equal)? {
+            self.expression()?
+        } else {
+            Expr::Literal {
+                id: self.get_id(),
+                value: Literal::Nil,
+            }
+        };
+
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration.",
+        )?;
+
+        return Ok(Stmt::Var { name, initializer });
+    }
+
+    fn class_declaration(&mut self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expected name after 'class' keyword")?;
+
+        let superclass = if self.match_token(TokenType::Colon)? {
+            self.consume(TokenType::Identifier, "Expected superclass name after ':'")?;
+            Some(Expr::Variable {
+                id: self.get_id(),
+                name: self.previous()?,
+            })
+        } else {
+            None
+        };
+
+        self.consume(TokenType::LeftBrace, "Expected '{{' before class body")?;
+
+        let mut methods = Vec::new();
+        while !self.check(TokenType::RightBrace) {
+            let method = self.function(FunctionKind::Method)?;
+            methods.push(Box::new(method));
+        }
+
+        self.consume(TokenType::RightBrace, "Expected '}}' after class body")?;
+
+        return Ok(Stmt::Class {
+            name,
+            methods,
+            superclass,
+        });
     }
 
     fn function(&mut self, kind: FunctionKind) -> Result<Stmt, String> {
@@ -107,26 +160,6 @@ impl Parser {
         };
 
         return Ok(Stmt::Function { name, params, body });
-    }
-
-    fn var_declaration(&mut self) -> Result<Stmt, String> {
-        let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
-
-        let initializer = if self.match_token(TokenType::Equal)? {
-            self.expression()?
-        } else {
-            Expr::Literal {
-                id: self.get_id(),
-                value: Literal::Nil,
-            }
-        };
-
-        self.consume(
-            TokenType::Semicolon,
-            "Expect ';' after variable declaration.",
-        )?;
-
-        return Ok(Stmt::Var { name, initializer });
     }
 
     fn statement(&mut self) -> Result<Stmt, String> {
@@ -347,9 +380,26 @@ impl Parser {
                         id: self.get_id(),
                         name,
                         value: Box::from(value),
-                    })
+                    });
                 }
-                _ => return Err(format!("Invalid assignment target: '{equals:?}'.")),
+                Expr::Get {
+                    id: _,
+                    object,
+                    name,
+                } => {
+                    return Ok(Expr::Set {
+                        id: self.get_id(),
+                        object,
+                        name,
+                        value: Box::new(value),
+                    });
+                }
+                _ => {
+                    return Err(format!(
+                        "Invalid assignment target: '{}'.",
+                        equals.to_string()
+                    ));
+                }
             };
         }
 
@@ -403,11 +453,11 @@ impl Parser {
         }
     }
 
-    fn peek(&self) -> Option<&Token> {
-        return self.tokens.get(self.curr);
+    fn peek(&mut self) -> Option<Token> {
+        return self.tokens.get(self.curr).cloned();
     }
 
-    fn is_at_end(&self) -> bool {
+    fn is_at_end(&mut self) -> bool {
         if let Some(token) = self.peek() {
             return token.token_type == TokenType::EOF;
         }
@@ -415,7 +465,7 @@ impl Parser {
         return true;
     }
 
-    fn check(&self, token_type: TokenType) -> bool {
+    fn check(&mut self, token_type: TokenType) -> bool {
         if self.is_at_end() || self.peek().is_none() {
             return false;
         }
@@ -533,6 +583,14 @@ impl Parser {
         loop {
             if self.match_token(TokenType::LeftParen)? {
                 expr = self.finish_call(expr)?;
+            } else if self.match_token(TokenType::Dot)? {
+                let name =
+                    self.consume(TokenType::Identifier, "Expected proprety name after '.'")?;
+                expr = Expr::Get {
+                    id: self.get_id(),
+                    object: Box::new(expr),
+                    name,
+                };
             } else {
                 break;
             }
@@ -572,18 +630,16 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Result<Expr, String> {
-        let mut result = None;
-
         if let Some(token) = self.peek() {
-            match token.token_type {
+            let result = match token.token_type {
                 TokenType::LeftParen => {
                     self.advance()?;
                     let expr = self.expression()?;
                     self.consume(TokenType::RightParen, "Expected ')'")?;
-                    result = Some(Expr::Grouping {
+                    Expr::Grouping {
                         id: self.get_id(),
                         expression: Box::from(expr),
-                    });
+                    }
                 }
                 TokenType::False
                 | TokenType::True
@@ -592,29 +648,47 @@ impl Parser {
                 | TokenType::String => {
                     self.advance()?;
                     let token = self.previous()?;
-                    result = Some(Expr::Literal {
+                    Expr::Literal {
                         id: self.get_id(),
                         value: Literal::from_token(token),
-                    });
+                    }
                 }
                 TokenType::Identifier => {
                     self.advance()?;
-                    result = Some(Expr::Variable {
+                    Expr::Variable {
                         id: self.get_id(),
                         name: self.previous()?,
-                    });
+                    }
                 }
                 TokenType::Fun => {
                     self.advance()?;
-                    result = Some(self.function_expression()?);
+                    self.function_expression()?
+                }
+                TokenType::This => {
+                    self.advance()?;
+
+                    Expr::This {
+                        id: self.get_id(),
+                        keyword: token,
+                    }
+                }
+                TokenType::Super => {
+                    self.advance()?;
+                    self.consume(TokenType::Dot, "Expected '.' after 'super'")?;
+                    let method =
+                        self.consume(TokenType::Identifier, "Expected superclass method name")?;
+
+                    Expr::Super {
+                        id: self.get_id(),
+                        keyword: token,
+                        method,
+                    }
                 }
 
                 _ => return Err("Expected expression.".to_string()),
-            }
-        }
+            };
 
-        if let Some(res) = result {
-            return Ok(res);
+            return Ok(result);
         } else {
             return Err("Expected expression.".to_string());
         }

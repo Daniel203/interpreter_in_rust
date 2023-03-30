@@ -1,0 +1,5 @@
+// --- Test
+{ var a = 5; var a = 3; }
+
+// --- Expected
+// Error: Variable with this name already declared 
