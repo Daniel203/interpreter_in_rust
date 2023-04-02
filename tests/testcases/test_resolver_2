@@ -4,7 +4,7 @@ fun mod() {
 }
 var a = 1;
 mod();
-print a;
+print(a);
 
 // --- Expected
 // 2

@@ -14,8 +14,8 @@ fun nested(a) {
   return -1;
 }
 
-print nested(2);
-print nested(1);
+print(nested(2));
+print(nested(1));
 
 // --- Expected
 // 2

@@ -5,7 +5,7 @@ class Animal {
     }
 
     speak() {
-        print this.name;
+        print(this.name);
     }
 }
 

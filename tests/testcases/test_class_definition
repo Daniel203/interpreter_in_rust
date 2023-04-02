@@ -5,7 +5,7 @@ class DevonshireCream {
   }
 }
 
-print DevonshireCream; 
+print(DevonshireCream); 
 
 // --- Expected
 // Class 'DevonshireCream'

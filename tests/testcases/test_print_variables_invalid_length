@@ -1,0 +1,9 @@
+// --- Test
+var a = 5;
+var b = 6;
+var c = 7;
+
+print("{} {}", a, b, c);
+
+// --- Expected
+// Error: Invalid parameters length: 2 expected, 3 found

@@ -1,7 +1,7 @@
 // --- Test
 class Greeter {
     greet() {
-        print "Hello, " + this.name;
+        print("Hello, {}", this.name);
     }
 }
 

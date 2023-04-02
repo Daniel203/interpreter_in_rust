@@ -7,7 +7,7 @@ class Bagel {
 }
 
 var b = Bagel();
-print b.a + b.b;
+print(b.a + b.b);
 
 // --- Expected
 // 5

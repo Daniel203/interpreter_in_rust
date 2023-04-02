@@ -6,7 +6,7 @@ fun thrice(fn) {
 }
 
 thrice(fun (a) {
-    print a;
+    print(a);
 });
 
 // --- Expected

@@ -4,6 +4,7 @@ use crate::{
     token::Token,
     token_type::TokenType,
 };
+use std::str;
 
 #[derive(Debug)]
 enum FunctionKind {
@@ -181,15 +182,46 @@ impl Parser {
     }
 
     fn print_statement(&mut self) -> Result<Stmt, String> {
-        let value = self.expression()?;
-        self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
+        self.consume(TokenType::LeftParen, "Expected '(' after 'print'")?;
 
-        return Ok(Stmt::Print { expression: value });
+        let expr = self.expression()?;
+
+        let mut arguments = vec![];
+        if self.match_token(TokenType::Comma)? && !self.check(TokenType::RightParen) {
+            loop {
+                let variable = self.expression()?;
+                arguments.push(variable);
+
+                if !self.match_token(TokenType::Comma)? {
+                    break;
+                }
+            }
+        }
+
+        self.consume(TokenType::RightParen, "Expected ')' after value")?;
+        self.consume(TokenType::Semicolon, "Expected ';' after value")?;
+
+        // Control the number of parameters in the print statement
+        // A parameter is in this format: print("{}", a)
+        let expected_parameters = expr.to_string().matches("{}").count();
+        let found_parameters = arguments.len();
+
+        if expected_parameters != found_parameters {
+            return Err(format!(
+                "Invalid parameters length: {} expected, {} found",
+                expected_parameters, found_parameters
+            ));
+        }
+
+        return Ok(Stmt::Print {
+            expression: expr,
+            arguments,
+        });
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, String> {
         let expr = self.expression()?;
-        self.consume(TokenType::Semicolon, "Expect ';' after expression.")?;
+        self.consume(TokenType::Semicolon, "Expected ';' after expression.")?;
 
         return Ok(Stmt::Expression { expression: expr });
     }

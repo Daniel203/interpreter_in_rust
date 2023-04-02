@@ -1,0 +1,8 @@
+// --- Test
+var a = 5;
+var b = 3;
+
+print("{} + {} = {}", a, b, a + b);
+
+// --- Expected
+// 5 + 3 = 8

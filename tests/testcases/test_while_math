@@ -4,7 +4,7 @@ var product = 1;
 while (times) {
   product = product * times;
   times = times - 1;
-  print product;
+  print(product);
 }
 
 // --- Expected

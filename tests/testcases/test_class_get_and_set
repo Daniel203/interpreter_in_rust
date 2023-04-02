@@ -4,10 +4,10 @@ class B{}
 var b = B();
 
 b.a = 10;
-print b.a;
+print(b.a);
 
 b.a = 20;
-print b.a;
+print(b.a);
 
 // --- Expected
 // 10

@@ -7,7 +7,7 @@ fun mod() {
 
 mod();
 
-print a;
+print(a);
 
 
 // --- Expected

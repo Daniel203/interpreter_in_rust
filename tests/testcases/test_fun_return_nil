@@ -1,11 +1,11 @@
 // --- Test
 fun noreturn(a, b) {
-  print a;
-  print b;
+  print(a);
+  print(b);
   return;
 }
 
-print noreturn(1, 2);
+print(noreturn(1, 2));
 
 // --- Expected
 // 1

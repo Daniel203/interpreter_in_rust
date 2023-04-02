@@ -54,7 +54,7 @@ impl Resolver {
                 then_branch: _,
                 else_branch: _,
             } => self.resolve_if_stmt(stmt)?,
-            Stmt::Print { expression } => self.resolve_expr(expression)?,
+            Stmt::Print { .. } => self.resolve_print(stmt)?,
             Stmt::ReturnStmt { keyword: _, value } => {
                 if self.current_function == FunctionType::None {
                     return Err("Return statement not allowed outside of a function".to_string());
@@ -303,6 +303,23 @@ impl Resolver {
 
         self.current_function = enclosing_function;
 
+        return Ok(());
+    }
+
+    fn resolve_print(&mut self, stmt: &Stmt) -> Result<(), String> {
+        if let Stmt::Print {
+            expression,
+            arguments,
+        } = stmt
+        {
+            self.resolve_expr(expression)?;
+
+            for argument in arguments {
+                self.resolve_expr(argument)?;
+            }
+        } else {
+            panic!("Wrong type in resolve print");
+        }
         return Ok(());
     }
 

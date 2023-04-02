@@ -53,9 +53,24 @@ impl Interpreter {
                 Stmt::Expression { expression } => {
                     expression.evaluate(self.environment.clone())?;
                 }
-                Stmt::Print { expression } => {
+                Stmt::Print {
+                    expression,
+                    arguments,
+                } => {
                     let value = expression.evaluate(self.environment.clone())?;
-                    println!("{}", value.to_string());
+                    let mut string = value.to_string();
+
+                    let mut args = Vec::new();
+                    for arg in arguments.iter().rev() {
+                        args.push(arg.evaluate(self.environment.clone())?);
+                    }
+
+                    while !args.is_empty() {
+                        let arg = args.pop().unwrap();
+                        string = string.replacen("{}", &arg.to_string(), 1);
+                    }
+
+                    println!("{}", string);
                 }
                 Stmt::Var { name, initializer } => {
                     let value = initializer.evaluate(self.environment.clone())?;

@@ -2,7 +2,7 @@
 class Cake {
   taste() {
     var adjective = "delicious";
-    print "The " + this.flavor + " cake is " + adjective + "!";
+    print("The {} cake is {}!", this.flavor, adjective);
   }
 }
 

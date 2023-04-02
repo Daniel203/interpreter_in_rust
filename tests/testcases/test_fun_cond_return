@@ -5,10 +5,10 @@ fun condreturn(a) {
   return a - 1;
 }
 
-print condreturn(4);
-print condreturn(3);
-print condreturn(2);
-print condreturn(-1);
+print(condreturn(4));
+print(condreturn(3));
+print(condreturn(2));
+print(condreturn(-1));
 
 
 // --- Expected
