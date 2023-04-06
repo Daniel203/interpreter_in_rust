@@ -1,11 +1,11 @@
 // --- Test
-fun caller(fn) {
-    fn();
+fn caller(function) {
+    function();
 }
 
 var a = 0;
 
-caller(fun () {a = a + 1;});
+caller(fn () {a = a + 1;});
 
 print(a);
 

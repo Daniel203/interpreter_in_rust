@@ -185,7 +185,7 @@ impl Lexer {
             ("else", TokenType::Else),
             ("false", TokenType::False),
             ("for", TokenType::For),
-            ("fun", TokenType::Fun),
+            ("fn", TokenType::Fun),
             ("if", TokenType::If),
             ("nil", TokenType::Nil),
             ("or", TokenType::Or),

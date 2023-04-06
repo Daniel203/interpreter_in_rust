@@ -1,5 +1,5 @@
 // --- Test
-fun test(a) {
+fn test(a) {
     return this.b + a;
 }
 

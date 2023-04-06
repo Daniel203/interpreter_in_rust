@@ -1,7 +1,7 @@
 // --- Test
 var a = 1;
 {
-  fun mod() {
+  fn mod() {
     a = 2;
   }
 

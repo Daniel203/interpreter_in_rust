@@ -1,11 +1,11 @@
 // --- Test
-fun thrice(fn) {
+fn thrice(function) {
     for (var i = 1; i <= 3; i = i + 1) {
-        fn(i);
+        function(i);
     }
 }
 
-thrice(fun (a) {
+thrice(fn (a) {
     print(a);
 });
 

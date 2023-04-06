@@ -1,5 +1,5 @@
 // --- Test
-fun mod() {
+fn mod() {
   a = 2;
 }
 var a = 1;
